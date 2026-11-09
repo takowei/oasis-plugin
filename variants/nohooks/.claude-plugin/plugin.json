@@ -1,0 +1,15 @@
+{
+  "name": "oasis-nohooks",
+  "description": "測試版B：沒有 hooks（無守衛），只有 skills",
+  "author": {
+    "name": "Tako"
+  },
+  "userConfig": {
+    "data_dir": {
+      "type": "directory",
+      "title": "資料夾",
+      "description": "放 districts/*.md 卡片的資料夾，可用 ~ 開頭",
+      "default": "~/workspace/oasis-city"
+    }
+  }
+}
