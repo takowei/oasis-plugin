@@ -1,6 +1,5 @@
 {
-  "description": "綠洲城市地圖 mod＋城牆守衛（安全規則 v2）＋開場注入學到的事與技能索引",
-  "modules": ["./oasis.ts"],
+  "description": "城牆守衛（安全規則 v2）＋開場注入學到的事與技能索引（mod 已停用：桌面 app 會因 modules 拒絕載入整個外掛）",
   "hooks": {
     "PreToolUse": [
       {
