@@ -7,17 +7,17 @@
   "plugins": [
     {
       "name": "oasis",
-      "source": "./",
+      "source": "./plugins/oasis",
       "description": "綠洲：從空城開局、找強項、蓋出自己的城市地圖"
     },
     {
       "name": "oasis-nomod",
-      "source": "./variants/nomod",
+      "source": "./plugins/oasis-nomod",
       "description": "測試版A：拿掉 mod，保留守衛"
     },
     {
       "name": "oasis-nohooks",
-      "source": "./variants/nohooks",
+      "source": "./plugins/oasis-nohooks",
       "description": "測試版B：沒有 hooks，只有 skills"
     }
   ]
