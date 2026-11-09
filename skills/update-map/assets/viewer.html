@@ -1,0 +1,3097 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>綠洲地圖</title></head>
+<body>
+<script>
+// OASIS-DATA-START（城市資料：更新地圖時只改寫這兩行標記之間的內容）
+window.OASIS_CARDS = [];
+// OASIS-DATA-END
+</script>
+<script>// src/guard.ts
+var D6 = /^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2})｜([^｜]+)｜(.+)$/;
+function $5($) {
+  let Q = [];
+  for (let Z of $.split(/\r?\n/)) {
+    let J = D6.exec(Z.trim());
+    if (J)
+      Q.push({
+        when: J[1],
+        rule: J[2].trim(),
+        summary: J[3].trim()
+      });
+  }
+  return {
+    total: Q.length,
+    recent: Q.slice(-5).reverse()
+  };
+}
+
+// src/types.ts
+var K4 = ["building", "waiting", "auto", "dormant"], Q5 = [
+  "academy",
+  "studio",
+  "shop",
+  "tent",
+  "well",
+  "windmill",
+  "gate",
+  "camp",
+  "core"
+], m3 = ["academy", "tower"], Z5 = ["endgame", "goal"], i = "core", j4 = 100, C4 = 1, F4 = 58;
+
+// src/parse.ts
+var M4 = /^\d+(\.\d+)?$/, A6 = /^[\p{L}\p{N}_-]+$/u, S6 = /^\d{4}-\d{2}-\d{2}$/;
+function J5($) {
+  let Q = $.trim(), Z = /^"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/.exec(Q);
+  if (Z)
+    return Z[1].replace(/\\(["\\n])/g, (V, q) => q === "n" ? `
+` : q);
+  let J = /^'((?:[^']|'')*)'\s*(?:#.*)?$/.exec(Q);
+  if (J)
+    return J[1].replace(/''/g, "'");
+  return Q.replace(/\s+#.*$/, "");
+}
+function n3($) {
+  let Q = $.replace(/^\uFEFF/, "").split(/\r?\n/);
+  if (Q[0]?.trim() !== "---")
+    return { ok: !1, reason: "開頭沒有 --- frontmatter" };
+  let Z = Q.findIndex((V, q) => q > 0 && V.trim() === "---");
+  if (Z === -1)
+    return { ok: !1, reason: "frontmatter 沒有結尾的 ---" };
+  let J = {};
+  for (let V = 1;V < Z; V++) {
+    let q = Q[V] ?? "";
+    if (q.trim() === "" || q.trim().startsWith("#"))
+      continue;
+    let B = /^([A-Za-z_][\w-]*)\s*:(.*)$/.exec(q);
+    if (!B)
+      return { ok: !1, reason: `第 ${V + 1} 行無法解析：${q}` };
+    J[B[1]] = J5(B[2]);
+  }
+  return {
+    ok: !0,
+    value: {
+      fields: J,
+      body: Q.slice(Z + 1).join(`
+`).trim()
+    }
+  };
+}
+function T6($) {
+  let Q = Date.parse(`${$}T00:00:00Z`);
+  return S6.test($) && !Number.isNaN(Q) && new Date(Q).toISOString().startsWith($);
+}
+function J3($, Q) {
+  let Z = $[Q];
+  return Z === void 0 || Z === "" ? void 0 : Z;
+}
+function I6($) {
+  for (let Q of ["name", "state", "next", "since"])
+    if (!$[Q])
+      return `缺少必填欄位 ${Q}`;
+  if (!K4.includes($.state))
+    return `state 必須是 ${K4.join("｜")}，收到「${$.state}」`;
+  if (!T6($.since))
+    return `since 不是有效的 ISO 日期（YYYY-MM-DD）：${$.since}`;
+  return;
+}
+function O6($) {
+  if ($ === void 0)
+    return { ok: !0, value: void 0 };
+  let Q = M4.test($) ? Number($) : Number.NaN;
+  if (!Number.isFinite(Q) || Q < 0 || Q > 1)
+    return { ok: !1, reason: `progress 必須是 0–1 的數字：${$}` };
+  return { ok: !0, value: Q };
+}
+var E6 = {
+  building: "studio",
+  waiting: "shop",
+  auto: "well",
+  dormant: "tent"
+}, L6 = /^#[0-9a-fA-F]{6}$/, k6 = /^\[\s*(\d+)\s*,\s*(\d+)\s*\]$/;
+function N4($, Q, Z) {
+  if ($ === void 0)
+    return { ok: !0, value: void 0 };
+  if (Q.includes($))
+    return { ok: !0, value: $ };
+  return {
+    ok: !1,
+    reason: `${Z} 必須是 ${Q.join("｜")}，收到「${$}」`
+  };
+}
+function h6($) {
+  if ($ === void 0)
+    return { ok: !0, value: void 0 };
+  let Q = k6.exec($);
+  if (!Q)
+    return { ok: !1, reason: `tile 必須是 [x, y]（整數）：${$}` };
+  return { ok: !0, value: [Number(Q[1]), Number(Q[2])] };
+}
+function w6($) {
+  let Q = [], Z = "", J = "";
+  for (let V of $) {
+    if (Z) {
+      if (V === Z)
+        Z = "";
+    } else if (V === '"' || V === "'")
+      Z = V;
+    else if (V === ",") {
+      Q.push(J), J = "";
+      continue;
+    }
+    J += V;
+  }
+  return Q.push(J), Q;
+}
+function b6($) {
+  if ($ === void 0)
+    return { ok: !0, value: void 0 };
+  let Q = (B) => ({
+    ok: !1,
+    reason: `xp 必須是 {current: 數字, target: 數字, label: 文字}：${B}`
+  }), Z = /^\{(.*)\}$/.exec($.trim());
+  if (!Z)
+    return Q($);
+  let J = {};
+  for (let B of w6(Z[1])) {
+    let z = /^\s*([A-Za-z_]\w*)\s*:(.*)$/.exec(B);
+    if (!z)
+      return Q(B.trim());
+    J[z[1]] = J5(z[2]);
+  }
+  let V = M4.test(J.current ?? "") ? Number(J.current) : Number.NaN, q = M4.test(J.target ?? "") ? Number(J.target) : Number.NaN;
+  if (!Number.isFinite(V) || !Number.isFinite(q))
+    return Q("current／target 不是數字");
+  if (V < 0 || q <= 0)
+    return Q("current ≥ 0、target > 0");
+  return { ok: !0, value: { current: V, target: q, label: J.label ?? "" } };
+}
+function u6($) {
+  if ($ === void 0)
+    return 1;
+  return $ < 0.3333333333333333 ? 1 : $ < 0.6666666666666666 ? 2 : 3;
+}
+function f6($, Q) {
+  if ($ === void 0)
+    return { ok: !0, value: u6(Q) };
+  if (!/^[123]$/.test($))
+    return { ok: !1, reason: `level 必須是 1、2、3：${$}` };
+  return { ok: !0, value: Number($) };
+}
+function x6($) {
+  return $.replace(/\.md$/, "").replace(/[^\p{L}\p{N}_-]/gu, "_");
+}
+function V5($) {
+  let Q = (F) => ({ file: $.file, reason: F }), Z = n3($.text);
+  if (!Z.ok)
+    return Q(Z.reason);
+  let { fields: J, body: V } = Z.value, q = I6(J);
+  if (q)
+    return Q(q);
+  let B = O6(J3(J, "progress")), z = N4(J3(J, "building"), Q5, "building"), Y = f6(J3(J, "level"), B.ok ? B.value : void 0), X = b6(J3(J, "xp")), C = h6(J3(J, "tile"));
+  for (let F of [B, z, Y, X, C])
+    if (!F.ok)
+      return Q(F.reason);
+  let K = J.state, M = J3(J, "goal") ?? (K === "auto" ? i : void 0);
+  return {
+    file: $.file,
+    id: x6($.file),
+    name: J.name,
+    short: J3(J, "short"),
+    state: K,
+    next: J.next,
+    since: J.since,
+    due: J3(J, "due"),
+    progress: B.ok ? B.value : void 0,
+    statusText: J3(J, "status_text"),
+    goal: M,
+    building: z.ok && z.value || E6[K],
+    level: Y.ok ? Y.value : 1,
+    xp: X.ok ? X.value : void 0,
+    quest: J3(J, "quest"),
+    tile: C.ok ? C.value : void 0,
+    body: V
+  };
+}
+function q5($) {
+  let Q = (Y) => ({ file: $.file, reason: Y }), Z = n3($.text);
+  if (!Z.ok)
+    return Q(Z.reason);
+  let { fields: J, body: V } = Z.value;
+  for (let Y of ["id", "name", "kind"])
+    if (!J[Y])
+      return Q(`缺少必填欄位 ${Y}`);
+  if (!A6.test(J.id))
+    return Q(`id 只能用文字、數字、底線、連字號：${J.id}`);
+  if (J.id === i)
+    return Q(`id 不能用保留字 ${i}`);
+  let q = N4(J.kind, Z5, "kind"), B = N4(J3(J, "landmark"), m3, "landmark");
+  if (!q.ok)
+    return Q(q.reason);
+  if (!B.ok)
+    return Q(B.reason);
+  let z = J3(J, "color") ?? "";
+  if (z !== "" && !L6.test(z))
+    return Q(`color 必須是 #rrggbb：${z}`);
+  return {
+    file: $.file,
+    id: J.id,
+    name: J.name,
+    kind: q.value,
+    color: z,
+    landmark: B.value ?? "academy",
+    body: V
+  };
+}
+function H4($) {
+  return "reason" in $;
+}
+
+// src/model.ts
+var B5 = [
+  "#4f8fb0",
+  "#d98c2b",
+  "#8a63b8",
+  "#3f9d6b",
+  "#c4506b",
+  "#7a8a2e"
+], R4 = "#8a7a5a";
+function z5($) {
+  return [...$].sort((Q, Z) => Q.file.localeCompare(Z.file));
+}
+function g6($) {
+  let Q = 0;
+  return $.map((Z) => {
+    if (Z.color !== "")
+      return Z;
+    if (Z.kind === "endgame")
+      return { ...Z, color: R4 };
+    let J = B5[Q++ % B5.length];
+    return { ...Z, color: J };
+  });
+}
+function p6($, Q) {
+  if ($ === void 0)
+    return "沒有 goal";
+  return Q.has($) ? "" : `goal「${$}」不存在`;
+}
+function c6($, Q) {
+  let Z = new Set(Q.map((J) => `goal-${J.id}`));
+  return $.map((J) => {
+    let V = J.id;
+    for (let q = 2;Z.has(V); q++)
+      V = `${J.id}-${q}`;
+    return Z.add(V), { ...J, id: V };
+  });
+}
+function y6($) {
+  return $.every((Q) => Q >= C4 && Q <= F4);
+}
+function m6($, Q) {
+  let Z = /* @__PURE__ */ new Set;
+  return $.map((J) => {
+    if (J.tile === void 0)
+      return J;
+    let V = J.tile.join(","), q = !y6(J.tile) ? `tile [${V}] 超出地圖（${C4}–${F4}）` : Z.has(V) ? `tile [${V}] 已被別張卡佔用` : "";
+    if (q === "")
+      return Z.add(V), J;
+    return Q.push({ file: J.file, reason: `${q}，已忽略改自動擺位` }), { ...J, tile: void 0 };
+  });
+}
+function Y5($, Q = []) {
+  let Z = {
+    goals: [],
+    districts: [],
+    errors: [],
+    orphans: [],
+    warnings: []
+  }, J = [];
+  for (let q of z5(Q)) {
+    let B = q5(q);
+    if (H4(B))
+      Z.errors.push(B);
+    else if (J.length >= j4)
+      Z.errors.push({
+        file: q.file,
+        reason: `目標超過 ${j4} 張，這張不畫`
+      });
+    else if (J.some((z) => z.id === B.id))
+      Z.errors.push({ file: q.file, reason: `id「${B.id}」重複` });
+    else
+      J.push(B);
+  }
+  Z.goals = g6(J);
+  for (let q of z5($)) {
+    let B = V5(q);
+    if (H4(B))
+      Z.errors.push(B);
+    else
+      Z.districts.push(B);
+  }
+  Z.districts = m6(c6(Z.districts, Z.goals), Z.warnings);
+  let V = /* @__PURE__ */ new Set([i, ...Z.goals.map((q) => q.id)]);
+  for (let q of Z.districts) {
+    if (q.state !== "building" && q.state !== "waiting")
+      continue;
+    if (q.building === "core")
+      continue;
+    let B = p6(q.goal, V);
+    if (B !== "")
+      Z.orphans.push({ file: q.file, name: q.name, reason: B });
+  }
+  return Z;
+}
+var n6 = 86400000;
+function r3($, Q) {
+  let Z = Date.UTC(Q.getFullYear(), Q.getMonth(), Q.getDate()), J = Math.round((Z - Date.parse(`${$}T00:00:00Z`)) / n6);
+  return Math.max(0, J);
+}
+
+// src/geom.ts
+var V3 = 40, d = 20, g = "#17262b", l = ($, Q) => [($ - Q) * 40, ($ + Q) * 20], R = ($, Q, Z = 0) => [
+  ($ - Q) * 40,
+  ($ + Q) * 20 - Z
+], v4 = ($) => String(Math.round($ * 10) / 10), t = ($) => $.map(([Q, Z]) => `${v4(Q)},${v4(Z)}`).join(" ");
+function y($, Q) {
+  let Z = Number.parseInt($.slice(1), 16);
+  return `#${[Z >> 16, Z >> 8 & 255, Z & 255].map((V) => Math.max(0, Math.min(255, Math.round(V * Q)))).map((V) => V.toString(16).padStart(2, "0")).join("")}`;
+}
+function i3($, Q, Z) {
+  let J = (z) => {
+    let Y = Number.parseInt(z.slice(1), 16);
+    return [Y >> 16, Y >> 8 & 255, Y & 255];
+  }, [V, q] = [J($), J(Q)];
+  return `#${V.map((z, Y) => Math.round(z + (q[Y] - z) * Z)).map((z) => z.toString(16).padStart(2, "0")).join("")}`;
+}
+function X5($) {
+  let Q = Number.parseInt($.slice(1), 16), [Z, J, V] = [Q >> 16, Q >> 8 & 255, Q & 255].map((q) => {
+    let B = q / 255;
+    return B <= 0.03928 ? B / 12.92 : ((B + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * Z + 0.7152 * J + 0.0722 * V;
+}
+function r6($, Q) {
+  let [Z, J] = [X5($), X5(Q)].sort((V, q) => q - V);
+  return (Z + 0.05) / (J + 0.05);
+}
+var i6 = 4.5;
+function s3($, Q = "#ffffff", Z = i6) {
+  let J = $.toLowerCase();
+  for (let V = 1;r6(J, Q) < Z && V > 0; V -= 0.02)
+    J = y($, Math.max(0, V));
+  return J;
+}
+function T($) {
+  return $.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function j($, Q, Z = "") {
+  let J = Object.entries(Q).map(([V, q]) => ` ${V}="${typeof q === "number" ? v4(q) : T(q)}"`).join("");
+  return `<${$}${J}>${Z}</${$}>`;
+}
+var U5 = /[^\u0000-ÿ]/, l3 = 24, _4 = 42, N3 = { w: 36, h: 18 }, S3 = { name: 14, lv: 13, quest: 13, legend: 13 }, C3 = 26;
+function T3($, Q = !1, Z = !1) {
+  let J = 18 + (Q ? l3 : 0) + (Z ? _4 : 0);
+  for (let V of $)
+    J += U5.test(V) ? 14 : 8.4;
+  return J;
+}
+function o3($, Q = 8) {
+  let Z = "", J = 0;
+  for (let V of $) {
+    if (J += U5.test(V) ? 1 : 0.58, J > Q)
+      return `${Z}…`;
+    Z += V;
+  }
+  return Z;
+}
+function I3($, Q, Z = 0) {
+  return $.x0 < Q.x1 + Z && Q.x0 < $.x1 + Z && $.y0 < Q.y1 + Z && Q.y0 < $.y1 + Z;
+}
+function W5($, Q) {
+  return {
+    x0: Math.min($.x0, Q.x0),
+    y0: Math.min($.y0, Q.y0),
+    x1: Math.max($.x1, Q.x1),
+    y1: Math.max($.y1, Q.y1)
+  };
+}
+
+// src/solids.ts
+var s6 = "#cfc8bb", G3 = ($) => $, O3 = ($) => i3($, s6, 0.65), D4 = 0.12, l6 = 0.014285714285714285, o6 = 0.2;
+function e([$, Q], Z = 1) {
+  let J = Z - 2 * D4;
+  return { x: $ + D4, y: Q + D4, w: J, d: J };
+}
+function P5([$, Q], Z = 1) {
+  let J = [];
+  for (let V = 0;V < Z; V++)
+    for (let q = 0;q < Z; q++)
+      J.push([$ + V, Q + q]);
+  return J;
+}
+var d6 = { stroke: g, "stroke-width": 1.4, "stroke-linejoin": "round" };
+function m($, Q, Z = {}) {
+  return j("polygon", { points: t($), fill: Q, ...d6, ...Z });
+}
+function Z3($, Q, Z) {
+  return j("line", { x1: $[0], y1: $[1], x2: Q[0], y2: Q[1], ...Z });
+}
+function $3($, Q, Z, J, V = G3, q = {}) {
+  let { x: B, y: z, w: Y, d: X } = $, C = V(J), K = (F, v) => R(F, v, Q + Z), M = (F, v) => R(F, v, Q);
+  return m([M(B, z + X), M(B + Y, z + X), K(B + Y, z + X), K(B, z + X)], q.left ?? y(C, 0.9)) + m([M(B + Y, z + X), M(B + Y, z), K(B + Y, z), K(B + Y, z + X)], q.right ?? y(C, 0.72)) + m([K(B, z), K(B + Y, z), K(B + Y, z + X), K(B, z + X)], q.top ?? C);
+}
+function E3($, Q, Z, J, V = G3, q = {}) {
+  let { x: B, y: z, w: Y, d: X } = $, C = R(B + Y / 2, z + X / 2, Q + Z), K = R(B, z + X, Q), M = R(B + Y, z + X, Q), F = R(B + Y, z, Q), v = (_, w) => q[_] ?? y(V(J), w);
+  return m([K, M, C], v("left", 0.92)) + m([M, F, C], v("right", 0.72));
+}
+function L3($, Q, Z) {
+  let { x: J, y: V, w: q, d: B } = $, z = "";
+  for (let Y = 0;Y < Z; Y++)
+    for (let X of [0.3, 0.7]) {
+      let C = Q - 14 - Y * 20, K = V + B - X * B;
+      z += m([
+        R(J + q, K - 0.08, C),
+        R(J + q, K + 0.08, C),
+        R(J + q, K + 0.08, C - 9),
+        R(J + q, K - 0.08, C - 9)
+      ], "#ffd98a", { "stroke-width": 0.8 });
+    }
+  return z;
+}
+function G5($, Q) {
+  let Z = Q * l6, [J, V] = [Z, Z * 0.25], { x: q, y: B, w: z, d: Y } = $, X = [
+    R(q, B),
+    R(q + z, B),
+    R(q + z + J, B + V),
+    R(q + z + J, B + Y + V),
+    R(q + J, B + Y + V),
+    R(q, B + Y)
+  ];
+  return j("polygon", {
+    points: t(X),
+    fill: g,
+    opacity: o6
+  });
+}
+
+// src/sprites.ts
+var K3 = ([$, Q]) => R($ + 0.5, Q + 0.5);
+function F5() {
+  let $ = j("path", { d: "M0 0q5 -18 1 -36" }), Q = j("path", {
+    d: "M1 -36q-15 -4 -22 6M1 -36q13 -6 22 3M1 -36q-4 -11 -14 -12M1 -36q8 -11 17 -7"
+  });
+  return j("g", {
+    stroke: "#2f6b4f",
+    "stroke-width": 2.6,
+    fill: "none",
+    "stroke-linecap": "round"
+  }, $ + Q);
+}
+function M5($) {
+  let [Q, Z] = K3($);
+  return j("use", { href: "#palm", x: Q, y: Z });
+}
+var a6 = {
+  academy: [30, 10],
+  studio: [24, 10],
+  shop: [28, 10],
+  core: [20, 8]
+}, H3 = 34, S4 = 14, N5 = 22;
+function T4($, Q) {
+  let [Z, J] = a6[$] ?? [24, 10];
+  return Z + J * (Q - 1);
+}
+function A4($) {
+  return T4($.building, $.level);
+}
+var k3 = {
+  academy: "a",
+  studio: "s",
+  shop: "p"
+};
+function t6($, Q, Z) {
+  let J = Math.max(1, Math.min(3, Math.round(Q)));
+  return `${k3[$] ?? "a"}${J}${Z ? "f" : ""}`;
+}
+function H5($) {
+  return $.building === "core" && $.state === "building";
+}
+function R5($) {
+  switch ($.building) {
+    case "academy":
+    case "studio":
+    case "shop":
+      return A4($) + H3 + ($.level >= 3 ? S4 : 0);
+    case "core":
+      return A4($) + (H5($) ? N5 : 0);
+    case "tent":
+    case "camp":
+      return 28;
+    case "well":
+      return 14;
+    case "windmill":
+      return 66;
+    case "gate":
+      return 44;
+  }
+}
+function v5($) {
+  switch ($.building) {
+    case "academy":
+    case "studio":
+    case "shop":
+      return H3;
+    case "tent":
+    case "camp":
+      return 28;
+    default:
+      return 0;
+  }
+}
+var a3 = {
+  academy: { wall: "#e4ddd0", roof: "#2e6b4f" },
+  studio: { wall: "#e2cbd3", roof: "#b05c78" },
+  shop: { wall: "#f3ede2", roof: "#d9862b" }
+}, K5 = { stroke: "#c98a2b", "stroke-width": 2.4 };
+function e6($, Q) {
+  let { x: Z, y: J, w: V, d: q } = $, z = [
+    [Z, J + q],
+    [Z + V, J + q],
+    [Z + V, J]
+  ].map(([X, C]) => Z3(R(X, C), R(X, C, Q + N5), K5)), Y = (X, C) => Z3(R(X[0], X[1], Q + 16), R(C[0], C[1], Q + 16), K5);
+  return z.join("") + Y([Z, J + q], [Z + V, J + q]) + Y([Z + V, J + q], [Z + V, J]);
+}
+function $7($, Q, Z) {
+  let J = A4($);
+  return $3(Q, 0, J, "#8fbf9a", Z) + (H5($) ? e6(Q, J) : L3(Q, J, 1));
+}
+function j5($, Q, Z) {
+  let { x: J, y: V, w: q, d: B } = $, z = R(J + q / 2, V + B / 2, 28), Y = m([R(J, V + B), R(J + q, V + B), z], Q("#e5ded0")) + m([R(J + q, V + B), R(J + q, V), z], Q("#bfb9ab")) + m([
+    R(J + q * 0.4, V + B),
+    R(J + q * 0.6, V + B),
+    R(J + q / 2, V + B, 14)
+  ], Q("#5c4a3a")), X = Z ? (([C, K]) => j("circle", { cx: C, cy: K, r: 4, fill: Q("#e3a12f"), stroke: g }))(R(J + q + 0.08, V + B * 0.85)) : "";
+  return Y + X;
+}
+function Q7($, Q, Z) {
+  let { x: J, y: V, w: q, d: B } = $, z = { x: J + 0.2, y: V + 0.2, w: q - 0.4, d: B - 0.4 }, Y = R(J + q - 0.2, V + B / 2, 38), X = [0, 90, 180, 270].map((C) => {
+    let K = C * Math.PI / 180;
+    return Z3(Y, [Y[0] + 24 * Math.cos(K), Y[1] + 24 * Math.sin(K)], {
+      stroke: Q("#2a7a7d"),
+      "stroke-width": 5,
+      "stroke-linecap": "round"
+    });
+  }).join("");
+  return $3(z, 0, 46, "#f3ede2", Q) + j("g", {}, X + (Z ? j("animateTransform", {
+    attributeName: "transform",
+    type: "rotate",
+    from: `0 ${Y[0]} ${Y[1]}`,
+    to: `360 ${Y[0]} ${Y[1]}`,
+    dur: "6s",
+    repeatCount: "indefinite"
+  }) : "")) + j("circle", { cx: Y[0], cy: Y[1], r: 3.5, fill: g });
+}
+function Z7($, Q) {
+  let { x: Z, y: J, w: V, d: q } = $, B = { x: Z + 0.15, y: J + 0.15, w: V - 0.3, d: q - 0.3 }, z = [
+    R(Z + 0.25, J + 0.25, 12),
+    R(Z + V - 0.25, J + 0.25, 12),
+    R(Z + V - 0.25, J + q - 0.25, 12),
+    R(Z + 0.25, J + q - 0.25, 12)
+  ];
+  return $3(B, 0, 12, "#c9b892", Q) + m(z, Q("#2a7a7d"));
+}
+function J7($, Q) {
+  let { x: Z, y: J, w: V, d: q } = $, B = J + q * 0.3, z = (Y) => $3({ x: Y, y: B, w: 0.2, d: q * 0.4 }, 0, 42, "#ded3bd", Q);
+  return z(Z) + z(Z + V - 0.2) + $3({ x: Z, y: B, w: V, d: q * 0.4 }, 32, 12, "#d6cbb2", Q);
+}
+function V7($, Q, Z, J, V) {
+  switch ($.building) {
+    case "academy":
+    case "studio":
+    case "shop": {
+      let [q, B] = l(Q[0], Q[1]), z = `#${t6($.building, $.level, J === O3)}`;
+      return j("use", { href: z, x: q, y: B });
+    }
+    case "core":
+      return $7($, Z, J);
+    case "tent":
+      return j5(Z, J, !1);
+    case "camp":
+      return j5(Z, J, !0);
+    case "well":
+      return Z7(Z, J);
+    case "windmill":
+      return Q7(Z, J, V);
+    case "gate":
+      return J7(Z, J);
+  }
+}
+function j3($, Q, Z) {
+  return j("g", { ...$, tabindex: 0, role: "button", "aria-label": Q }, j("title", {}, T(Q)) + Z);
+}
+var q7 = {
+  building: "在建",
+  waiting: "等你動手",
+  auto: "自動運轉",
+  dormant: "休眠"
+};
+function B7($) {
+  let Q = $.state === "building" || $.state === "waiting" ? `，Lv.${$.level}` : "", Z = $.state === "waiting" ? "，有任務等你接" : "";
+  return `${$.name}：${q7[$.state]}${Q}${Z}`;
+}
+function R3($, Q = 70, Z = 36, J = "#e3a12f") {
+  return j("ellipse", {
+    class: "ring",
+    display: "none",
+    cx: $[0],
+    cy: $[1] + 4,
+    rx: Q,
+    ry: Z,
+    fill: "none",
+    stroke: J,
+    "stroke-width": 3,
+    "stroke-dasharray": "7 5"
+  });
+}
+function _5($, Q, Z = !0) {
+  let J = $.state === "dormant" ? O3 : G3, V = V7($, Q, e(Q), J, Z);
+  return j3({ class: "b", "data-id": $.id }, B7($), R3(K3(Q)) + V);
+}
+var d3 = 22, C5 = ($, Q, Z) => ({
+  wall: $,
+  peak: Q,
+  top: $ + Q + d3,
+  rows: Z,
+  roof: Q + d3
+}), t3 = {
+  academy: C5(64, 48, 3),
+  tower: C5(96, 70, 4)
+}, h3 = 2, I4 = {
+  academy: "lmA",
+  tower: "lmT"
+};
+function D5($, Q, Z, J, V = "目標") {
+  let q = e(J, h3), [B, z] = l(J[0], J[1]), Y = j("use", { href: `#${I4[Q]}`, x: B, y: z, color: Z }), X = R(q.x + q.w / 2, q.y + q.d / 2);
+  return j3({ class: "b", "data-id": $ }, `目標：${V}`, R3(X, 92, 46) + Y);
+}
+
+// src/library-building.ts
+var z7 = [1, 6, 16], O4 = "#e9dfc9", E4 = "#6b4f8f", e3 = [0, 24, 30, 34], v3 = 20;
+function A5($) {
+  return ($.learned?.length ?? 0) + ($.skills?.length ?? 0);
+}
+function S5($) {
+  return z7.filter((Q) => $ >= Q).length;
+}
+function T5($) {
+  return (e3[$] ?? e3[1]) + v3 + ($ >= 3 ? 12 : 0);
+}
+var I5 = v3 + 12;
+function Y7($, Q) {
+  let Z = e(Q), { x: J, y: V, w: q, d: B } = Z, z = e3[$] ?? e3[1], Y = V + B / 2, X = 0.06, C = [0.25, 0.5, 0.75].map((v) => Z3(R(J + v * q, V + B, 2), R(J + v * q, V + B, z - 4), {
+    stroke: y(O4, 0.7),
+    "stroke-width": 3
+  })), K = m([R(J + q, V, z), R(J + q, V + B, z), R(J + q, Y, z + v3)], y(O4, 0.72)), M = m([
+    R(J - 0.06, V + B + 0.06, z - 2),
+    R(J + q + 0.06, V + B + 0.06, z - 2),
+    R(J + q + 0.06, Y, z + v3),
+    R(J - 0.06, Y, z + v3)
+  ], y(E4, 0.95)), F = $ >= 3 ? (([v, _]) => j("path", {
+    d: `M${v - 14} ${_} a14 12 0 0 1 28 0z`,
+    fill: y(E4, 1.25),
+    stroke: g,
+    "stroke-width": 1.4
+  }))(R(J + q / 2, Y, z + v3)) : "";
+  return $3(Z, 0, z, O4) + C.join("") + K + M + F;
+}
+function O5($) {
+  let Q = $.library ?? 1;
+  return j3({
+    class: "b library",
+    "data-id": "library",
+    "data-level": Q
+  }, `圖書館：Lv.${Q}`, R3(K3($.tile), 56, 28, E4) + Y7(Q, $.tile));
+}
+
+// src/clock-building.ts
+var X7 = "#d9c9a3", E5 = "#2f6b8f", $4 = 58, L4 = 26, w3 = $4 + L4, L5 = L4;
+function U7($) {
+  let Q = e($), [Z, J] = R(Q.x + Q.w / 2, Q.y + Q.d, $4 - 18), V = (q, B) => Z3([Z, J], [Z + q, J + B], {
+    stroke: g,
+    "stroke-width": 2,
+    "stroke-linecap": "round"
+  });
+  return j("circle", {
+    cx: Z,
+    cy: J,
+    r: 9,
+    fill: "#fffaf0",
+    stroke: g,
+    "stroke-width": 1.6
+  }) + V(0, -6) + V(4, 2);
+}
+function k5($) {
+  let Q = e($.tile), Z = $3(Q, 0, $4, X7) + U7($.tile), J = E3(Q, $4, L4, E5), V = m([
+    R(Q.x + Q.w / 2, Q.y + Q.d / 2, w3),
+    R(Q.x + Q.w / 2, Q.y + Q.d / 2, w3 + 10),
+    R(Q.x + Q.w / 2 + 0.2, Q.y + Q.d / 2, w3 + 5)
+  ], "#e3a12f");
+  return j3({ class: "b clock", "data-id": "clock" }, "鐘樓：打開這週的行程表", R3(K3($.tile), 56, 28, E5) + Z + J + V);
+}
+
+// src/layout.ts
+var W7 = 11, k4 = 60, Q4 = "#1f6f78", P7 = -120, G7 = 18, h5 = [
+  "none",
+  "10 6",
+  "2 6",
+  "14 5 3 5",
+  "6 4",
+  "18 6",
+  "3 4 9 4"
+], p = ([$, Q]) => `${$},${Q}`;
+function Z4($, Q, Z, J, V) {
+  let q = e(Q, Z.size), [B, z] = R(q.x + q.w / 2, q.y + q.d / 2), Y = (q.w + q.d) / 2 * V3 + 2, X = {
+    x0: B - Y,
+    y0: z - Z.top,
+    x1: B + Y,
+    y1: z + (q.w + q.d) / 2 * d + 1
+  }, C = X.y0 + Z.roof, K = [
+    { ...X, y0: C },
+    { ...X, x0: B - Y / 2, x1: B + Y / 2, y1: C }
+  ], M = T3(J.text, J.quest === !0, J.lv !== void 0), F = X.y0 - G7, v = {
+    x0: B - M / 2,
+    y0: F - C3 / 2,
+    x1: B + M / 2,
+    y1: F + C3 / 2
+  };
+  return {
+    id: $,
+    tile: Q,
+    cells: P5(Q, Z.size),
+    size: Z.size,
+    top: Z.top,
+    ...V,
+    label: { ...J, cx: B, cy: F, w: M },
+    sprite: X,
+    parts: K,
+    labelBox: v,
+    bbox: W5(X, v)
+  };
+}
+function K7($, Q) {
+  let Z = t3[$.landmark];
+  return Z4(`goal-${$.id}`, Q, { size: h3, top: Z.top, roof: Z.roof }, {
+    text: `目標：${o3($.name, 10)}`,
+    dim: !1,
+    goalColor: $.color
+  }, { goal: $ });
+}
+function h4($, Q) {
+  let Z = $.state === "building" || $.state === "waiting";
+  return Z4($.id, Q, { size: 1, top: R5($), roof: v5($) }, {
+    text: o3($.short ?? $.name, 10),
+    dim: $.state === "dormant",
+    lv: Z ? $.level : void 0,
+    quest: $.state === "waiting"
+  }, { district: $ });
+}
+function j7($, Q) {
+  return Z4("library", Q, { size: 1, top: T5($), roof: I5 }, { text: "圖書館", dim: !1, lv: $ }, { library: $ });
+}
+function C7($) {
+  return Z4("clock", $, { size: 1, top: w3, roof: L5 }, { text: "行程表", dim: !1 }, { clock: !0 });
+}
+function F7($, Q) {
+  if (!I3($.bbox, Q.bbox, 2))
+    return !1;
+  let Z = (J, V) => J.some((q) => V.some((B) => I3(q, B, 2)));
+  return Z($.parts, Q.parts) || Z([$.labelBox], [Q.labelBox]) || Z($.parts, [Q.labelBox]) || Z([$.labelBox], Q.parts);
+}
+function M7($, Q) {
+  let [Z, J] = $.tile, [V, q] = Q.tile;
+  return V <= Z + $.size && Z <= V + Q.size && q <= J + $.size && J <= q + Q.size;
+}
+
+class u5 {
+  n;
+  strict;
+  palace;
+  items = [];
+  occupied = /* @__PURE__ */ new Set;
+  hub;
+  pool = /* @__PURE__ */ new Set;
+  constructor($, Q, Z) {
+    this.n = $;
+    this.strict = Q;
+    this.palace = Z;
+    let J = Math.floor($ / 2);
+    this.hub = [J - 3, J - 3];
+    for (let V of [J - 1, J])
+      for (let q of [J - 1, J])
+        this.pool.add(p([V, q]));
+    this.occupied.add(p(this.hub));
+  }
+  fits($) {
+    if (!this.strict)
+      return !0;
+    if (this.palace && I3($.bbox, this.palace, 2))
+      return !1;
+    return !this.items.some((Q) => F7($, Q) || M7($, Q));
+  }
+  add($) {
+    this.items.push($);
+    for (let Q of $.cells)
+      this.occupied.add(p(Q));
+  }
+  cellsFree($) {
+    return $.every(([Q, Z]) => Q >= 0 && Z >= 0 && Q < this.n && Z < this.n && this.free([Q, Z]));
+  }
+  free($) {
+    let Q = p($);
+    return !this.occupied.has(Q) && !this.pool.has(Q);
+  }
+  placeNear($, Q) {
+    let Z = [];
+    for (let V = 1;V <= this.n - 2; V++)
+      for (let q = 1;q <= this.n - 2; q++)
+        if (this.free([V, q]))
+          Z.push([V, q]);
+    let J = ([V, q]) => Math.hypot(V - $[0], q - $[1]);
+    Z.sort((V, q) => J(V) - J(q) || V[0] - q[0] || V[1] - q[1]);
+    for (let V of Z) {
+      let q = Q(V);
+      if (this.fits(q))
+        return this.add(q), !0;
+    }
+    return !1;
+  }
+}
+function N7($, Q) {
+  return Q.every((Z, J) => {
+    for (let V = 0;V <= $.n - 3; V += 2)
+      for (let q = 4;q <= $.n - 2; q++) {
+        let B = J % 2 === 0 ? [V, q] : [q, V], z = K7(Z, B);
+        if ($.cellsFree(z.cells) && $.fits(z))
+          return $.add(z), !0;
+      }
+    return !1;
+  });
+}
+function w4($, Q) {
+  if (Q === i)
+    return $.hub;
+  return $.items.find((Z) => Z.goal?.id === Q)?.tile;
+}
+function H7($, Q, Z) {
+  let J = $.n - 1, V = Math.floor($.n / 2);
+  if (Q.state === "auto")
+    return [2, $.n - 3];
+  if (Q.state === "dormant")
+    return [$.n - 2, V + 1];
+  if (Z && Q.goal !== i)
+    return [
+      Z[0] + 0.35 * (J - Z[0]),
+      Z[1] + 0.35 * (J - Z[1])
+    ];
+  return [V + 1, J - 1];
+}
+function R7($, Q) {
+  let Z = new Map(Q.goals.map((Y) => [Y.id, w4($, Y.id)])), J = Q.districts.find((Y) => Y.building === "core" && Y.tile === void 0), V = Q.districts.filter((Y) => Y.tile !== void 0);
+  for (let Y of V)
+    $.add(h4(Y, Y.tile));
+  if (J)
+    $.occupied.delete(p($.hub)), $.add(h4(J, $.hub));
+  let q = S5(A5(Q));
+  if (q > 0) {
+    let Y = [$.n - 2, Math.floor($.n / 2) - 1];
+    if (!$.placeNear(Y, (X) => j7(q, X)))
+      return !1;
+  }
+  if (Q.schedule) {
+    let Y = Math.floor($.n / 2);
+    if (!$.placeNear([Y + 2, Y - 2], C7))
+      return !1;
+  }
+  let B = ["building", "waiting", "auto", "dormant"];
+  return Q.districts.filter((Y) => Y !== J && Y.tile === void 0).sort((Y, X) => B.indexOf(Y.state) - B.indexOf(X.state)).every((Y) => {
+    let X = H7($, Y, Z.get(Y.goal ?? ""));
+    return $.placeNear(X, (C) => h4(Y, C));
+  });
+}
+function v7($, Q, Z, J) {
+  let V = (X) => X[0] * $ + X[1], q = Array($ * $).fill(Number.POSITIVE_INFINITY), B = Array($ * $).fill(-1), z = Array($ * $).fill(!1);
+  q[V(Q)] = 0;
+  for (;; ) {
+    let X = -1;
+    for (let M = 0;M < q.length; M++)
+      if (!z[M] && (X < 0 || q[M] < q[X]))
+        X = M;
+    if (X < 0 || !Number.isFinite(q[X]))
+      break;
+    if (z[X] = !0, X === V(Z))
+      break;
+    let C = Math.floor(X / $), K = X % $;
+    for (let [M, F] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ]) {
+      let v = [C + M, K + F];
+      if (v[0] < 0 || v[1] < 0 || v[0] >= $ || v[1] >= $)
+        continue;
+      let _ = q[X] + J(v);
+      if (_ < q[V(v)])
+        q[V(v)] = _, B[V(v)] = X;
+    }
+  }
+  let Y = [];
+  for (let X = V(Z);X !== -1; X = B[X])
+    Y.unshift([Math.floor(X / $), X % $]);
+  return { tiles: Y };
+}
+function _7($, Q) {
+  let Z = [];
+  if ($.items.find((V) => p(V.tile) === p($.hub)) || Q.districts.some((V) => V.goal === i))
+    for (let V of Q.goals.filter((q) => q.kind === "goal")) {
+      let q = w4($, V.id);
+      if (q)
+        Z.push({
+          from: "hub",
+          start: $.hub,
+          goalId: V.id,
+          end: q,
+          color: V.color
+        });
+    }
+  for (let V of $.items) {
+    let q = V.district;
+    if (!q || q.goal === void 0 || p(V.tile) === p($.hub))
+      continue;
+    let B = q.goal === i ? $.hub : Q.goals.find((X) => X.id === q.goal)?.kind === "endgame" ? [0, 0] : w4($, q.goal);
+    if (!B)
+      continue;
+    let z = Q.goals.find((X) => X.id === q.goal), Y = q.goal === i ? Q4 : z?.color ?? R4;
+    Z.push({ from: V.id, start: V.tile, goalId: q.goal, end: B, color: Y });
+  }
+  return Z;
+}
+var D7 = 1000;
+function w5($, Q) {
+  return $.items.find((Z) => p(Z.tile) === p(Q))?.cells ?? [Q];
+}
+function A7($, Q) {
+  let Z = /* @__PURE__ */ new Map, J = [], V = /* @__PURE__ */ new Map, q = new Set($.items.flatMap((B) => B.cells.map(p)));
+  for (let B of Q) {
+    let z = new Set([...w5($, B.start), ...w5($, B.end)].map(p)), Y = (M) => {
+      let F = p(M);
+      if (z.has(F))
+        return 1;
+      if ($.pool.has(F) || $.occupied.has(F))
+        return D7;
+      let v = Z.get(F);
+      if (v === B.color)
+        return 0.25;
+      return v ? 8 : 1;
+    }, { tiles: X } = v7($.n, B.start, B.end, Y), C = X.filter((M) => !q.has(p(M))), K = new Set(C.map(p));
+    for (let M of C)
+      if (!Z.has(p(M)))
+        Z.set(p(M), B.color);
+    for (let M = 0;M + 1 < X.length; M++) {
+      let [F, v] = [X[M], X[M + 1]];
+      if (!K.has(p(F)) || !K.has(p(v)))
+        continue;
+      let [_, w] = p(F) < p(v) ? [F, v] : [v, F];
+      V.set(`${p(_)}|${p(w)}|${B.color}`, {
+        a: _,
+        b: w,
+        color: B.color
+      });
+    }
+    J.push({
+      from: B.from,
+      goalId: B.goalId,
+      color: B.color,
+      tiles: X
+    });
+  }
+  return { roads: Z, routes: J, links: [...V.values()] };
+}
+var S7 = [
+  [-1.4, 0.2],
+  [1.4, -1.2],
+  [0.8, 1.9],
+  [-1.8, -1.1],
+  [0.2, -2.6],
+  [-1.2, 2.3]
+];
+function T7($, Q) {
+  let Z = Math.floor($.n / 2), J = [];
+  for (let [V, q] of S7) {
+    let B = [Math.floor(Z + V), Math.floor(Z + q)], [z, Y] = K3(B), X = { x0: z - 24, y0: Y - 44, x1: z + 24, y1: Y + 20 };
+    if (!(!$.free(B) || Q.has(p(B)) || $.items.some((K) => I3(X, K.bbox))))
+      J.push(B);
+  }
+  return J;
+}
+function I7($, Q, Z) {
+  let J = /* @__PURE__ */ new Map, V = /* @__PURE__ */ new Map, q = (F, v, _) => {
+    if (!V.has(v))
+      V.set(v, h5[V.size % h5.length]);
+    J.set(F, { color: v, text: _, dash: V.get(v) });
+  };
+  for (let F of Q.goals)
+    if ($.find((_) => _.goalId === F.id))
+      q(F.id, F.color, `通往 ${o3(F.name, 10)}`);
+  if (Q.districts.some((F) => F.building === "core") && $.some((F) => F.goalId === i))
+    q(i, Q4, "接綠洲核心（自動運轉）");
+  let Y = 2 * (Z * V3 + 20) - 48, X = [
+    []
+  ], C = (F) => F.reduce((v, _) => v + _.w, 0) + 16 * Math.max(0, F.length - 1);
+  for (let F of J.values()) {
+    let v = { ...F, w: T3(F.text) + 12 }, _ = X[X.length - 1];
+    if (_.length > 0 && C([..._, v]) > Y)
+      _ = [], X.push(_);
+    _.push(v);
+  }
+  let K = 2 * d * Z + 26, M = [];
+  return X.forEach((F, v) => {
+    let _ = -C(F) / 2;
+    for (let w of F)
+      M.push({ ...w, x: _, y: K + v * 28 }), _ += w.w + 16;
+  }), {
+    legend: M,
+    dashes: V,
+    bottom: M.length === 0 ? K - 14 : K + (X.length - 1) * 28 + 22
+  };
+}
+function b5($, Q, Z) {
+  let J = $.goals.find((w) => w.kind === "endgame"), V = J ? { x0: -40, y0: -95, x1: 40, y1: -30 } : void 0, q = new u5(Q, Z, V), B = $.goals.filter((w) => w.kind === "goal");
+  if (!N7(q, B) || !R7(q, $))
+    return;
+  let { roads: z, routes: Y, links: X } = A7(q, _7(q, $)), { legend: C, bottom: K, dashes: M } = I7(Y, $, Q), F = Q * V3 + 20, v = Math.min(P7, ...q.items.map((w) => w.bbox.y0 - 10)), _ = Math.floor(Q / 2);
+  return {
+    n: Q,
+    hub: q.hub,
+    pool: [_ - 1, _ - 1],
+    items: q.items,
+    roads: z,
+    routes: Y,
+    links: X,
+    palms: T7(q, z),
+    legend: C,
+    dashes: M,
+    palace: V,
+    endgame: J,
+    view: { x0: -F, y0: v, x1: F, y1: K + 8 }
+  };
+}
+function f5($) {
+  let Q = $.districts.flatMap((V) => V.tile ? [...V.tile] : []), Z = Math.max(W7, Math.max(0, ...Q) + 2);
+  for (let V = Math.min(Z, k4);V < k4; V++) {
+    let q = b5($, V, !0);
+    if (q)
+      return q;
+  }
+  let J = b5($, k4, !1);
+  if (!J)
+    throw Error("目標或街區太多，地圖放不下");
+  return J;
+}
+
+// src/profile.ts
+function x5($) {
+  let Q = [];
+  for (let Z of $.split(/\r?\n/)) {
+    let J = Z.trim(), V = /^##\s+(.+)$/.exec(J);
+    if (V) {
+      Q.push({ name: V[1].trim(), sources: [] });
+      continue;
+    }
+    let q = /^[-*]\s+(.+)$/.exec(J), B = Q[Q.length - 1];
+    if (q && B)
+      B.sources.push(q[1].trim());
+  }
+  return Q;
+}
+function J4($) {
+  return $.goals.length === 0 && $.districts.length === 0;
+}
+var V4 = "跟 Claude 說「開局」，開始找你的綠洲";
+
+// src/schedule-client.ts
+function g5($) {
+  let Q = document.querySelector(".pane.sched"), Z = document.getElementById("sched-data");
+  if (!Q || !Z)
+    return;
+  let J = window, V = Q.querySelector(".sbody"), q = Q.querySelector(".pending"), B = Q.querySelector(".msg"), z = Q.querySelector(".tools"), Y = Z.textContent || "{}", X = JSON.parse(Y);
+  X.today = $.colOf(X, /* @__PURE__ */ new Date);
+  let C = $.store(() => window.localStorage), K = `oasis-time:${$.signature(X)}`, M = [], F, v = !0;
+  try {
+    let H = JSON.parse(C.load(K) || "[]");
+    for (let I of H)
+      if ($.applyChange(X, I).ok)
+        M.push(I);
+  } catch {
+    M = [];
+  }
+  let _ = () => {
+    let H = /* @__PURE__ */ new Date;
+    return {
+      min: H.getHours() * 60 + H.getMinutes(),
+      iso: `${H.getFullYear()}-${String(H.getMonth() + 1).padStart(2, "0")}-${String(H.getDate()).padStart(2, "0")}`
+    };
+  }, w = (H) => {
+    B.textContent = H;
+  };
+  function c() {
+    if (M.length === 0) {
+      q.hidden = !0, q.innerHTML = "";
+      return;
+    }
+    let H = M.map((u) => $.formatChange(X, u)).join(`
+`), I = J.showDirectoryPicker && window.isSecureContext ? ' <button type="button" data-act="save">直接存回資料夾</button>' : "", k = v ? "" : "（這個瀏覽器不能暫存，重新整理會不見，請先複製）";
+    q.hidden = !1, q.innerHTML = `<b>◆ 有 ${M.length} 個改動還沒存回</b> <button type="button" data-act="copy">複製給 Claude</button>${I} <button type="button" data-act="revert">放棄這些改動</button><details><summary>看改動清單</summary><textarea readonly rows="${Math.min(8, M.length + 1)}" aria-label="改動清單">${$.esc(H)}</textarea></details><p class="sub">把清單貼給 Claude，它會更新 時間/本週.md 並重畫地圖。${k}</p>`;
+  }
+  function L() {
+    let H = _();
+    if (V.innerHTML = $.bodyHtml(X, H.min, H.iso), F)
+      V.querySelector(`li.tk[data-day="${F.day}"][data-i="${F.i}"]`)?.insertAdjacentHTML("afterend", $.menuHtml(X, F.day, F.i));
+    let I = $.counts(X), k = Q?.querySelector(".lv");
+    if (k)
+      k.textContent = `本週排 ${I.planned} 塊、做了 ${I.done} 塊`;
+    c(), W3();
+  }
+  function n() {
+    if (v = C.save(K, JSON.stringify(M)), M.length === 0)
+      C.remove(K);
+  }
+  function r(H) {
+    let I = $.applyChange(X, H);
+    if (!I.ok)
+      return w(`✕ 放不進去：${I.reason}`), !1;
+    return M.push(H), F = void 0, n(), w("✓ 已記下，還沒存回；上方可以複製給 Claude"), L(), !0;
+  }
+  let q3 = (H) => {
+    if (!H)
+      return;
+    let [I, k] = H.split(":").map(Number);
+    return I * 60 + k;
+  };
+  function x3(H, I) {
+    let k = Number(I.dataset.day), u = Number(I.dataset.i), o = X.week[k]?.[u]?.text ?? "", B3 = (c3) => I.querySelector(`[name="${c3}"]`).value, z3 = B3("reason") || void 0;
+    if ((H === "postpone" || H === "drop") && !z3) {
+      w("✕ 還沒選原因：請先選「沒做的原因」");
+      return;
+    }
+    let X3 = { day: k, idx: u, text: o };
+    if (H === "done")
+      r({ ...X3, kind: "done" });
+    else if (H === "small")
+      r({ ...X3, kind: "small", reason: "太大塊" });
+    else if (H === "drop")
+      r({ ...X3, kind: "drop", reason: z3 });
+    else
+      r({
+        ...X3,
+        kind: H === "move" ? "move" : "postpone",
+        toDay: Number(B3("day")),
+        toTime: q3(B3("time")),
+        reason: H === "move" ? void 0 : z3
+      });
+  }
+  async function g3() {
+    try {
+      let H = await J.showDirectoryPicker({ mode: "readwrite" }), k = await (H.name === "時間" ? H : await H.getDirectoryHandle("時間")).getFileHandle("本週.md"), u = await (await k.getFile()).text(), o = $.applyToMarkdown(u, X, M), B3 = await k.createWritable();
+      await B3.write(o.text), await B3.close(), M = M.filter((z3) => o.skipped.includes($.formatChange(X, z3))), n(), L(), w(o.skipped.length > 0 ? `✓ 已存回 時間/本週.md；有 ${o.skipped.length} 個改動要請 Claude 處理，用「複製給 Claude」` : "✓ 已存回 時間/本週.md；對 Claude 說「更新地圖」才會重畫這張圖");
+    } catch (H) {
+      w(`✕ 沒有存成：${H instanceof Error ? H.message : "已取消"}（可改用「複製給 Claude」）`);
+    }
+  }
+  function X4() {
+    let H = M.map((u) => $.formatChange(X, u)).join(`
+`), I = q.querySelector("textarea"), k = () => {
+      let u = q.querySelector("details");
+      if (u)
+        u.open = !0;
+      I?.select(), w("請手動複製上面清單，貼給 Claude");
+    };
+    if (!navigator.clipboard)
+      return k();
+    navigator.clipboard.writeText(H).then(() => w(`✓ 已複製 ${M.length} 行，貼給 Claude 就好`), k);
+  }
+  let f = {
+    left: 1800,
+    running: !1,
+    handle: 0,
+    task: "",
+    asking: !1
+  }, M3 = () => `${String(Math.floor(f.left / 60)).padStart(2, "0")}:${String(f.left % 60).padStart(2, "0")}`;
+  function W3() {
+    let I = (X.week[X.today] ?? []).map((u, o) => ({ t: u, i: o })).filter((u) => u.t.status === "todo" && !u.t.gone).map((u) => `<option value="${u.i}"${String(u.i) === f.task ? " selected" : ""}>${$.esc(u.t.text)}</option>`).join(""), k = f.asking ? `<p class="ask" role="status"><b>做完了嗎？</b> ${f.task ? '<button type="button" data-act="t-done">✓ 做了</button> <button type="button" data-act="t-later">→ 延後…</button> ' : ""}<button type="button" data-act="t-skip">先放著</button></p>` : "";
+    z.innerHTML = `<span class="tm"><b>◷ 30 分鐘專注</b> <output aria-live="off">${M3()}</output> <label>做這件 <select name="task"><option value="">（不指定）</option>${I}</select></label> <button type="button" data-act="t-start">${f.running ? "暫停" : "開始"}</button> <button type="button" data-act="t-end">結束</button></span> <button type="button" data-act="print">列印這週</button>${k}`;
+  }
+  function p3(H) {
+    clearInterval(f.handle), f.running = !1, f.asking = !0, f.left = 1800, w(H ? "◷ 30 分鐘到了（只在這個頁面提醒）" : "◷ 已結束這一段"), W3();
+  }
+  function U4() {
+    f.asking = !1;
+    let H = z.querySelector("[name=task]");
+    if (H)
+      f.task = H.value;
+    if (f.running)
+      clearInterval(f.handle), f.running = !1;
+    else
+      f.running = !0, f.handle = window.setInterval(() => {
+        if (f.left -= 1, f.left <= 0)
+          p3(!0);
+        else {
+          let I = z.querySelector("output");
+          if (I)
+            I.textContent = M3();
+        }
+      }, 1000);
+    W3();
+  }
+  function W4(H) {
+    let I = Number(f.task), k = X.week[X.today]?.[I]?.text ?? "";
+    if (f.asking = !1, H === "t-done" && f.task)
+      r({ kind: "done", day: X.today, idx: I, text: k });
+    else if (H === "t-later" && f.task)
+      F = { day: X.today, i: I }, L();
+    else
+      W3();
+  }
+  Q.addEventListener("click", (H) => {
+    let I = H.target.closest("[data-act]");
+    if (!I)
+      return;
+    let k = I.dataset.act;
+    if (k === "menu")
+      F = { day: Number(I.dataset.day), i: Number(I.dataset.i) }, w(""), L(), V.querySelector(".menu button")?.focus();
+    else if (k === "close")
+      F = void 0, L();
+    else if (["done", "drop", "small", "postpone", "move"].includes(k))
+      x3(k, I.closest("li.menu"));
+    else if (k === "copy")
+      X4();
+    else if (k === "save")
+      g3();
+    else if (k === "revert")
+      X = JSON.parse(Y), X.today = $.colOf(X, /* @__PURE__ */ new Date), M = [], F = void 0, n(), w("已放棄這些改動，回到存檔的樣子"), L();
+    else if (k === "print")
+      window.print();
+    else if (k === "t-start")
+      U4();
+    else if (k === "t-end")
+      p3(!1);
+    else
+      W4(k);
+  }), Q.addEventListener("change", (H) => {
+    let I = H.target;
+    if (I.name === "task")
+      f.task = I.value;
+  }), Q.addEventListener("submit", (H) => {
+    H.preventDefault();
+    let I = H.target, k = I.elements.namedItem("text").value.trim(), u = I.elements.namedItem("due").value;
+    if (!k) {
+      w("✕ 先寫一件事再加進待排");
+      return;
+    }
+    let o = u ? `${u.slice(5, 7)}/${u.slice(8, 10)}` : void 0;
+    r({ kind: "add", day: 0, text: k, due: o });
+  }), Q.addEventListener("dragstart", (H) => {
+    let I = H.target.closest("li.tk[draggable]");
+    if (I && H.dataTransfer)
+      H.dataTransfer.setData("text/plain", `${I.dataset.day}:${I.dataset.i}`);
+  }), Q.addEventListener("dragover", (H) => {
+    if (H.target.closest(".day"))
+      H.preventDefault();
+  }), Q.addEventListener("drop", (H) => {
+    let I = H.target, k = I.closest(".day"), u = H.dataTransfer?.getData("text/plain").split(":").map(Number);
+    if (!k || !u || u.length !== 2)
+      return;
+    H.preventDefault();
+    let [o, B3] = u, z3 = X.week[o]?.[B3];
+    if (!z3)
+      return;
+    let X3 = I.closest("li[data-at]");
+    r({
+      kind: "move",
+      day: o,
+      idx: B3,
+      text: z3.text,
+      toDay: Number(k.dataset.day),
+      toTime: X3 ? Number(X3.dataset.at) : z3.time
+    });
+  }), new MutationObserver(() => {
+    if (!Q.hidden)
+      V.querySelector(".day.today")?.scrollIntoView({ block: "nearest", inline: "center" });
+  }).observe(Q, { attributes: !0, attributeFilter: ["hidden"] }), window.setInterval(() => {
+    let H = V.querySelector(".nowbox");
+    if (H)
+      H.outerHTML = $.nowHtml(X, _().min);
+  }, 30000), L();
+}
+
+// src/schedule-lib.ts
+function b4() {
+  let K = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"], M = ["被吃掉", "太大塊", "狀況變了", "不想做"], F = "[綠洲時間改動]", v = (W) => String(W).padStart(2, "0"), _ = (W) => `${v(Math.floor(W / 60))}:${v(W % 60)}`, w = (W, U) => `${_(W)}–${U >= 1440 ? "24:00" : _(U)}`, c = (W) => String(W).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), L = (W) => {
+    let U = Math.floor(W / 60), P = W % 60;
+    if (U === 0)
+      return `${P} 分`;
+    return P === 0 ? `${U} 小時` : `${U} 小時 ${P} 分`;
+  }, n = (W) => W.minutes ?? 30, r = (W) => !W.gone && (W.status === "done" || W.status === "todo");
+  function q3(W, U) {
+    let P = [];
+    for (let G of W) {
+      let N = G.end <= G.start;
+      if (G.days.includes(U))
+        P.push({ start: G.start, end: N ? 1440 : G.end, name: G.name });
+      if (N && G.days.includes((U + 6) % 7))
+        P.push({ start: 0, end: G.end, name: G.name });
+    }
+    return P.sort((G, N) => G.start - N.start || G.end - N.end);
+  }
+  function x3(W, U) {
+    return (W.week[U] ?? []).filter((P) => r(P) && P.time !== void 0).map((P) => ({
+      start: P.time,
+      end: Math.min(1440, P.time + n(P)),
+      name: P.text
+    }));
+  }
+  function g3(W, U) {
+    return [...q3(W.fixed, U), ...x3(W, U)];
+  }
+  function X4(W, U) {
+    return [...M3(W, U), ...x3(W, U)];
+  }
+  function f(W, U) {
+    let P = [], G = 0;
+    for (let N of [...W].sort((S, O) => S.start - O.start)) {
+      if (N.start - G >= U)
+        P.push({ start: G, end: N.start });
+      G = Math.max(G, N.end);
+    }
+    if (1440 - G >= U)
+      P.push({ start: G, end: 1440 });
+    return P;
+  }
+  function M3(W, U) {
+    return q3(W.fixed, U).map((P) => {
+      let G = /睡/.test(P.name), N = G && P.start > 0 && P.start < 360, S = G ? N ? P.start : 60 : 15, O = G ? 30 : 15;
+      return {
+        start: P.start > 0 ? Math.max(0, P.start - S) : 0,
+        end: P.end < 1440 ? Math.min(1440, P.end + O) : 1440,
+        seg: P,
+        sleep: G,
+        before: P.start > 0 ? S : 0,
+        after: P.end < 1440 ? O : 0
+      };
+    });
+  }
+  function W3(W, U, P = -1) {
+    let G = (b) => b.reduce((s, E) => s + E.end - E.start, 0), N = 1440 - G(f(q3(W.fixed, U), 1)), S = G(f(M3(W, U), 30)), O = 1440 - N - S, A = (W.week[U] ?? []).reduce((b, s, E) => E !== P && r(s) ? b + n(s) : b, 0);
+    return {
+      fixed: N,
+      buffer: O,
+      planned: A,
+      avail: S,
+      limit: Math.floor(S * (W.halfCap ? 0.5 : 0.6))
+    };
+  }
+  function p3(W, U, P) {
+    let G = P.seg, N = `${K[W]} ${_(U)}`;
+    if (P.sleep && U >= G.end)
+      return {
+        ok: !1,
+        reason: `${N} 太接近起床時間（睡醒後 ${P.after} 分鐘先留給自己，${K[W]} ${_(G.end + P.after)} 之後才排）`
+      };
+    if (P.sleep)
+      return {
+        ok: !1,
+        reason: `${N} 太接近睡覺時間（睡前 ${P.before} 分鐘要留來休息，不排進去）`
+      };
+    return {
+      ok: !1,
+      reason: U >= G.end ? `${N} 離「${G.name}」剛結束太近，先留 ${P.after} 分鐘緩衝，${_(G.end + P.after)} 之後才排` : `${N} 離「${G.name}」開始太近，前面要留 ${P.before} 分鐘緩衝`
+    };
+  }
+  function U4(W, U) {
+    let P = [];
+    for (let G of q3(W.fixed, U)) {
+      if (/睡/.test(G.name))
+        continue;
+      let N = P.at(-1);
+      if (N && G.start - N.end <= 60) {
+        if (N.end = Math.max(N.end, G.end), N.name !== G.name)
+          N.name = `${N.name}～${G.name}`;
+      } else
+        P.push({ ...G });
+    }
+    return P;
+  }
+  function W4(W, U, P, G) {
+    if (P === void 0)
+      return;
+    let N = U4(W, U).find((O) => O.end - O.start >= 240 && P >= O.end);
+    if (!N)
+      return;
+    if ((W.week[U] ?? []).filter((O, A) => A !== G && r(O) && O.time !== void 0 && O.time >= N.end).length < 1)
+      return;
+    return {
+      ok: !1,
+      reason: `${K[U]} 「${N.name}」連續 ${L(N.end - N.start)}，結束後到睡前最多排 1 塊，這天已經有了`
+    };
+  }
+  function H(W, U, P, G, N = -1, S = 0) {
+    if (P !== void 0) {
+      let E = Math.min(1440, P + G), D = q3(W.fixed, U).find((h) => P < h.end && E > h.start);
+      if (D) {
+        let h = `${K[U]} ${w(D.start, D.end)}`;
+        return {
+          ok: !1,
+          reason: /睡/.test(D.name) ? `${h} 是睡覺時段，不排進睡眠時間` : `${h} 是固定行程「${D.name}」，不能排進去`
+        };
+      }
+    }
+    let O = q3(W.fixed, U).find((E) => /睡/.test(E.name) && E.start > 0 && E.start < 360);
+    if (P !== void 0 && O && P < O.start)
+      return {
+        ok: !1,
+        reason: `${K[U]} ${w(0, O.start)} 在睡覺之前，不建議把事情排到半夜`
+      };
+    if (P !== void 0) {
+      let E = Math.min(1440, P + G), D = M3(W, U).find((h) => P < h.end && E > h.start);
+      if (D)
+        return p3(U, P, D);
+    }
+    let A = W3(W, U, N);
+    if (A.planned + G > A.limit)
+      return {
+        ok: !1,
+        reason: `${K[U]} 已排 ${L(A.planned)}，再排就超過可用時間的${W.halfCap ? "一半（這週先排一半）" : "六成"}（可用 ${L(A.avail)}，上限 ${L(A.limit)}）`
+      };
+    let b = W4(W, U, P, N);
+    if (b)
+      return b;
+    let s = P4(W).planned;
+    if (S === 0 && W.capacity !== void 0 && s + 1 > W.capacity)
+      return {
+        ok: !1,
+        reason: `這週已排 ${s} 塊，再排就超過每週 ${W.capacity} 塊的容量`
+      };
+    return { ok: !0 };
+  }
+  let I = (W, U) => W.dates[U] || K[U] || "";
+  function k(W, U) {
+    let P = U.text.replace(/\s+/g, " ").replace(/ → /g, " - ").trim();
+    if (U.kind === "add")
+      return `${"[綠洲時間改動]"} 新增待排 ${P}${U.due ? `，截止 ${U.due}` : ""}`;
+    let G = `${U.later ?? I(W, U.toDay ?? 0)}${U.toTime === void 0 ? "" : ` ${_(U.toTime)}`}`, N = U.reason ? `，原因：${U.reason}` : "", S = {
+      done: "做了",
+      postpone: `延後到 ${G}${N}`,
+      move: `移到 ${G}`,
+      drop: `刪掉${N}`,
+      small: "標記太大塊"
+    };
+    return `${"[綠洲時間改動]"} ${I(W, U.day)} ${P} → ${S[U.kind]}`;
+  }
+  function u(W, U) {
+    let P = [], G = [], N = (O) => {
+      let A = W.dates.indexOf(O);
+      return A >= 0 ? A : K.indexOf(O);
+    }, S = (O) => {
+      if (O === void 0)
+        return;
+      let [A, b] = O.split(":").map(Number);
+      return A * 60 + b;
+    };
+    for (let O of U.split(`
+`)) {
+      let A = O.trim();
+      if (!A.startsWith("[綠洲時間改動]"))
+        continue;
+      let b = A.slice(8).trim(), s = /^新增待排 (.+?)(?:，截止 (\d{1,2}\/\d{1,2}))?$/.exec(b);
+      if (s) {
+        P.push({
+          kind: "add",
+          day: 0,
+          text: s[1],
+          due: s[2]
+        });
+        continue;
+      }
+      let E = b.lastIndexOf(" → "), D = E < 0 ? "" : b.slice(0, E), h = E < 0 ? "" : b.slice(E + 3), x = D.indexOf(" "), Q3 = x < 0 ? -1 : N(D.slice(0, x)), y3 = D.slice(x + 1).trim(), P3 = (Y3) => ({
+        ...Y3,
+        day: Q3,
+        text: y3
+      }), A3 = (Y3) => Y3 === void 0 || M.includes(Y3), U3, a;
+      if (Q3 < 0 || y3 === "")
+        U3 = void 0;
+      else if (h === "做了")
+        U3 = P3({ kind: "done" });
+      else if (h === "標記太大塊")
+        U3 = P3({ kind: "small" });
+      else if (a = /^延後到 ([^\s，]+)(?: (\d{1,2}:\d{2}))?(?:，原因：(.+))?$/.exec(h)) {
+        let Y3 = N(a[1]);
+        if (Y3 >= 0 && A3(a[3]))
+          U3 = P3({
+            kind: "postpone",
+            toDay: Y3,
+            toTime: S(a[2]),
+            reason: a[3]
+          });
+        else if (Y3 < 0 && /^\d{1,2}\/\d{1,2}$/.test(a[1]) && A3(a[3]))
+          U3 = P3({
+            kind: "postpone",
+            later: a[1],
+            reason: a[3]
+          });
+      } else if (a = /^移到 ([^\s，]+)(?: (\d{1,2}:\d{2}))?$/.exec(h)) {
+        let Y3 = N(a[1]);
+        if (Y3 >= 0)
+          U3 = P3({ kind: "move", toDay: Y3, toTime: S(a[2]) });
+      } else if (a = /^刪掉(?:，原因：(.+))?$/.exec(h)) {
+        if (A3(a[1]))
+          U3 = P3({ kind: "drop", reason: a[1] });
+      }
+      if (U3)
+        P.push(U3);
+      else
+        G.push(A.slice(0, 60));
+    }
+    return { changes: P, ignored: G };
+  }
+  let o = (W, U) => `${U.text}（原定 ${I(W, U.day)}，延後到 ${U.later}）`;
+  function B3(W, U) {
+    if (U.kind === "add")
+      return W.inbox.push({ text: U.text, due: U.due }), { ok: !0 };
+    let P = W.week[U.day] ?? [], G = U.idx ?? P.findIndex((S) => !S.gone && r(S) && S.text === U.text), N = P[G];
+    if (!N)
+      return { ok: !1, reason: `找不到「${U.text}」` };
+    if (U.kind === "done")
+      N.status = "done";
+    else if (U.kind === "small")
+      N.big = !0;
+    else if (U.kind === "drop")
+      N.status = "dropped", N.note = U.reason;
+    else if (U.later !== void 0)
+      N.status = "moved", N.note = `→ ${U.later}`, W.inbox.push({ text: o(W, U) });
+    else {
+      let S = U.toDay ?? U.day, O = S === U.day && U.kind === "move", A = H(W, S, U.toTime, n(N), O ? G : -1, U.kind === "move" || U.kind === "postpone" ? 1 : 0);
+      if (!A.ok)
+        return A;
+      if (O)
+        return N.time = U.toTime, { ok: !0 };
+      let b = { ...N, status: "todo", time: U.toTime };
+      if (delete b.note, delete b.big, U.kind === "postpone")
+        N.status = "moved", N.note = `→ ${K[S]}`;
+      else
+        N.gone = !0;
+      W.week[S]?.push(b);
+    }
+    return { ok: !0 };
+  }
+  function z3(W, U, P) {
+    let G = W.split(`
+`), N = [], S = (D) => G.findIndex((h) => new RegExp(`^##\\s*${K[D]}`).test(h)), O = (D) => {
+      let h = D + 1;
+      while (h < G.length && !/^##/.test(G[h]))
+        h++;
+      while (h > D + 1 && G[h - 1].trim() === "")
+        h--;
+      return h;
+    }, A = (D, h) => {
+      let x = S(D);
+      if (x < 0)
+        return -1;
+      for (let Q3 = x + 1;Q3 < O(x); Q3++)
+        if (G[Q3].includes(h) && /^[-*]\s*\[ \]|^[-*]\s*\[x\]/i.test(G[Q3].trim()))
+          return Q3;
+      return -1;
+    }, b = (D, h) => {
+      let x = U.week[D.day]?.find((A3) => A3.text === D.text), Q3 = D.toTime === void 0 ? "" : `${_(D.toTime)} `, y3 = x?.minutes === void 0 ? "" : `（${x.minutes} 分）`, P3 = x?.file === void 0 ? "" : ` @ ${x.file}`;
+      return `- [${h}] ${Q3}${D.text}${y3}${P3}`;
+    }, s = (D, h) => {
+      let x = S(D);
+      if (x < 0)
+        return !1;
+      return G.splice(O(x), 0, h), !0;
+    }, E = (D) => {
+      let h = G.findIndex((x) => /^##\s*待排/.test(x));
+      if (h < 0)
+        G.push("## 待排"), h = G.length - 1;
+      G.splice(O(h), 0, `- ${D}`);
+    };
+    for (let D of P) {
+      let h = k(U, D);
+      if (D.kind === "add") {
+        E(`${D.text}${D.due ? `（截止 ${D.due}）` : ""}`);
+        continue;
+      }
+      let x = A(D.day, D.text);
+      if (x < 0) {
+        N.push(h);
+        continue;
+      }
+      if (D.kind === "small") {
+        let Q3 = G[x];
+        if (!/[（(]\s*太大塊\s*[）)]/.test(Q3))
+          G[x] = Q3.replace(/(\s*[@＠]\s*\S+)?\s*$/, "（太大塊）$1");
+      } else if (D.later !== void 0)
+        G[x] = `- [>] 延後：${D.text} → ${D.later}`, E(o(U, D));
+      else if (D.kind === "done")
+        G[x] = G[x].replace(/\[ \]/, "[x]");
+      else if (D.kind === "drop")
+        G[x] = `- [-] 刪掉：${D.text}`;
+      else if (!s(D.toDay ?? D.day, b(D, " ")))
+        N.push(h);
+      else if (D.kind === "postpone")
+        G[x] = `- [>] 延後：${D.text} → ${K[D.toDay ?? D.day]}`;
+      else
+        G.splice(x, 1);
+    }
+    return { text: G.join(`
+`), skipped: N };
+  }
+  function X3(W, U, P) {
+    let G = {
+      done: "✓",
+      todo: "○",
+      moved: "→",
+      dropped: "✕"
+    }, N = {
+      done: "做了",
+      todo: "還沒",
+      moved: "延後",
+      dropped: "刪掉"
+    }, S = W.time === void 0 ? "" : `${_(W.time)} `, O = W.minutes === void 0 ? "" : `（${W.minutes} 分）`, A = c(`${W.text}${O}`), b = W.target ? `<button type="button" data-id="${c(W.target)}">${A}</button>` : A, s = [W.big ? "太大塊" : "", W.note ?? ""].filter(Boolean), E = s.length ? ` <small>（${c(s.join("、"))}）</small>` : "", D = W.status === "todo" || W.status === "done", h = D ? ` <button type="button" class="more" data-act="menu" data-day="${U}" data-i="${P}" aria-label="操作：${c(W.text)}">⋯ 操作</button>` : "", x = D ? ` draggable="true" data-day="${U}" data-i="${P}"` : "";
+    return `<li class="tk ${W.status}"${x}><b><span aria-hidden="true">${G[W.status]}</span> ${N[W.status]}</b>${S}${b}${E}${h}</li>`;
+  }
+  function c3(W, U) {
+    let P = W.week[U] ?? [], N = [
+      ...q3(W.fixed, U).map((A) => ({
+        at: A.start,
+        html: `<li class="fx" data-day="${U}" data-at="${A.start}"><b><span aria-hidden="true">▪</span> 固定</b>${w(A.start, A.end)} ${c(A.name)}</li>`
+      })),
+      ...f(X4(W, U), 60).map((A) => ({
+        at: A.start,
+        html: `<li class="free" data-day="${U}" data-at="${A.start}"><b><span aria-hidden="true">◇</span> 空檔</b>${w(A.start, A.end)}</li>`
+      }))
+    ], S = [], O = [];
+    return P.forEach((A, b) => {
+      if (A.gone)
+        return;
+      if (A.time === void 0)
+        O.push(X3(A, U, b));
+      else
+        S.push({ at: A.time, html: X3(A, U, b) });
+    }), [...N, ...S].sort((A, b) => A.at - b.at).map((A) => A.html).concat(O);
+  }
+  function i4(W, U) {
+    let P = W3(W, U), G = (A) => Math.min(100, Math.round(A / 1440 * 100)), N = G(P.fixed + P.buffer + P.limit), S = W.halfCap ? "五成線" : "六成線", O = P.planned > P.limit ? `，已過${S}` : "";
+    return `<div class="cap"><div class="bar" aria-hidden="true"><i class="f" style="width:${G(P.fixed + P.buffer)}%"></i><i class="p" style="width:${G(P.planned)}%"></i><i class="line" style="left:${N}%"></i></div><p>固定 ${L(P.fixed)}・緩衝 ${L(P.buffer)}・已排 ${L(P.planned)}・剩 ${L(Math.max(0, P.avail - P.planned))}<br>${S} ${L(P.limit)}${O}</p></div>`;
+  }
+  function s4(W, U) {
+    let P = c3(W, U), G = P.length ? P.join("") : '<li class="free">（沒有排）</li>', N = U === W.today, S = W.dates[U] ? ` ${W.dates[U]}` : "";
+    return `<section class="day${N ? " today" : ""}" data-day="${U}"><h3><span>${K[U]}${S}</span>${N ? "<em>今天</em>" : ""}</h3>${i4(W, U)}<ul>${G}</ul></section>`;
+  }
+  function l4(W) {
+    return K.map((U, P) => s4(W, P)).join("");
+  }
+  function P4(W) {
+    let U = W.week.flat().filter((P) => !P.gone);
+    return {
+      planned: U.filter((P) => r(P)).length,
+      done: U.filter((P) => P.status === "done").length
+    };
+  }
+  function o4(W, U) {
+    if (W.today < 0)
+      return;
+    let P = (W.week[W.today] ?? []).filter((E) => !E.gone), G = (E) => ({
+      start: E.time,
+      end: E.time + n(E)
+    }), N = P.find((E) => E.status === "todo" && E.time !== void 0 && G(E).start <= U && U < G(E).end), S = q3(W.fixed, W.today).find((E) => E.start <= U && U < E.end), O = P.filter((E) => E.status === "todo" && E.time !== void 0 && E.time > U).sort((E, D) => E.time - D.time)[0] ?? P.find((E) => E.status === "todo" && E.time === void 0), A = f([...g3(W, W.today), { start: 0, end: U }], 30).reduce((E, D) => E + D.end - D.start, 0), b = N ? `${_(G(N).start)}–${_(Math.min(1440, G(N).end))} ${N.text}` : S ? `${w(S.start, S.end)} ${S.name}（固定行程）` : "空檔，現在沒有安排", s = O ? `${O.time === void 0 ? "（沒定時間）" : _(O.time)} ${O.text}` : "今天沒有了";
+    return { nowText: b, nextText: s, left: A, clock: _(U) };
+  }
+  function d4(W, U) {
+    let P = o4(W, U);
+    if (!P)
+      return "";
+    return `<div class="nowbox"><p><b>◷ 現在 ${P.clock}</b>　${c(P.nowText)}</p><p><b>▸ 下一塊</b>　${c(P.nextText)}</p><p><b>◇ 空檔</b>　今天接下來還有 ${L(P.left)}</p></div>`;
+  }
+  let G4 = (W) => {
+    let [U, P, G] = W.split("-").map(Number);
+    return Date.UTC(U, P - 1, G);
+  };
+  function a4(W, U) {
+    let P = W.deadlines.map((G) => ({
+      ...G,
+      n: Math.round((G4(G.date) - G4(U)) / 86400000)
+    })).filter((G) => G.n >= -3 && G.n <= 30).sort((G, N) => G.n - N.n).map((G) => {
+      let N = G.n === 0 ? "就是今天" : G.n > 0 ? `還有 ${G.n} 天` : `已過 ${-G.n} 天`;
+      return `<li>▸ ${G.date.slice(5).replace("-", "/")} ${c(G.text)}：${N}</li>`;
+    });
+    if (!P.length)
+      return "";
+    return `<div class="deadlines"><h3>近期截止日</h3><ul>${P.join("")}</ul></div>`;
+  }
+  function t4(W) {
+    let U = P4(W), P = [
+      ...W.history,
+      { label: "這週", planned: U.planned, done: U.done }
+    ];
+    if (P.length < 2)
+      return "";
+    let G = Math.max(1, ...P.map((S) => S.planned));
+    return `<div class="history"><h3>最近幾週</h3><p class="sub">空心條是排的塊數，實心條是做的塊數；只是記錄。</p><ul>${P.map((S) => {
+      let O = (A) => Math.round(A / G * 100);
+      return `<li><span class="hl">${c(S.label)}</span><span class="hb" aria-hidden="true"><i class="a" style="width:${O(S.planned)}%"></i><i class="b" style="width:${O(S.done)}%"></i></span><span>排 ${S.planned} 塊、做 ${S.done} 塊</span></li>`;
+    }).join("")}</ul></div>`;
+  }
+  function e4(W) {
+    let U = W.inbox.map((G) => `<li>◇ ${c(G.text)}${G.due ? `（截止 ${c(G.due)}）` : ""}</li>`).join("");
+    return `<div class="inbox"><h3>待排</h3>${U ? `<ul>${U}</ul>` : '<p class="sub">還沒有待排的事。</p>'}<form class="addform"><label>新增一件事 <input name="text" type="text" size="18"></label> <label>截止日（選填） <input name="due" type="date"></label> <button type="submit">＋ 加進待排</button></form><p class="sub">加進來之後，對 Claude 說「排這週」會把它拆成小塊排進去。</p></div>`;
+  }
+  function N6(W, U, P) {
+    return `${d4(W, U)}<div class="week">${l4(W)}</div>${a4(W, P)}${t4(W)}${e4(W)}`;
+  }
+  function H6(W, U, P) {
+    let G = W.week[U]?.[P];
+    if (!G)
+      return "";
+    let N = K.map((A, b) => `<option value="${b}"${b === Math.min(6, U + 1) ? " selected" : ""}>${A}${W.dates[b] ? ` ${W.dates[b]}` : ""}</option>`).join(""), S = M.map((A) => `<option>${A}</option>`).join(""), O = G.status === "done" ? "" : '<button type="button" data-act="done">✓ 做了</button> ';
+    return `<li class="menu" role="group" aria-label="操作：${c(G.text)}" data-day="${U}" data-i="${P}"><b>操作：${c(G.text)}</b><div class="mrow">${O}<button type="button" data-act="drop">✕ 刪掉</button> <button type="button" data-act="small">▽ 改小（標記太大塊）</button></div><div class="mrow"><label>沒做的原因 <select name="reason"><option value="">（延後、刪掉要選一個）</option>${S}</select></label></div><div class="mrow"><label>到 <select name="day">${N}</select></label> <label>時間（選填） <input type="time" name="time"></label> <button type="button" data-act="postpone">→ 延後到那天</button> <button type="button" data-act="move">⇄ 移到那天</button></div><div class="mrow"><button type="button" data-act="close">取消</button></div></li>`;
+  }
+  function R6(W, U) {
+    let P = (U.getDay() + 6) % 7;
+    if (!W.weekStart)
+      return P;
+    let G = Math.round((Date.UTC(U.getFullYear(), U.getMonth(), U.getDate()) - G4(W.weekStart)) / 86400000);
+    return G >= 0 && G < 7 ? P : -1;
+  }
+  function v6(W) {
+    return {
+      load(U) {
+        try {
+          return W().getItem(U) ?? void 0;
+        } catch {
+          return;
+        }
+      },
+      save(U, P) {
+        try {
+          return W().setItem(U, P), !0;
+        } catch {
+          return !1;
+        }
+      },
+      remove(U) {
+        try {
+          W().removeItem(U);
+        } catch {}
+      }
+    };
+  }
+  function _6(W) {
+    let U = JSON.stringify(W.week) + JSON.stringify(W.fixed), P = 0;
+    for (let G = 0;G < U.length; G++)
+      P = P * 31 + U.charCodeAt(G) | 0;
+    return String(P);
+  }
+  return {
+    NAMES: K,
+    REASONS: M,
+    DEFAULT_MIN: 30,
+    fmt: _,
+    hm: L,
+    esc: c,
+    segmentsOn: q3,
+    gapsOf: f,
+    busy: g3,
+    capacity: W3,
+    canPlace: H,
+    formatChange: k,
+    parseChanges: u,
+    applyChange: B3,
+    applyToMarkdown: z3,
+    dayRows: c3,
+    dayHtml: s4,
+    capHtml: i4,
+    weekHtml: l4,
+    counts: P4,
+    nowInfo: o4,
+    nowHtml: d4,
+    deadlinesHtml: a4,
+    historyHtml: t4,
+    inboxHtml: e4,
+    bodyHtml: N6,
+    menuHtml: H6,
+    colOf: R6,
+    store: v6,
+    signature: _6
+  };
+}
+
+// src/schedule.ts
+var f4 = `${"時間"}/固定行程.md`, x4 = `${"時間"}/本週.md`, m5 = `${"時間"}/歷史.md`, _3 = [
+  "週一",
+  "週二",
+  "週三",
+  "週四",
+  "週五",
+  "週六",
+  "週日"
+], O7 = {
+  週一: [0],
+  週二: [1],
+  週三: [2],
+  週四: [3],
+  週五: [4],
+  週六: [5],
+  週日: [6],
+  週天: [6],
+  每天: [0, 1, 2, 3, 4, 5, 6],
+  平日: [0, 1, 2, 3, 4],
+  週末: [5, 6]
+};
+var p5 = ($) => String($).padStart(2, "0");
+function u4($, Q) {
+  let Z = Number($), J = Number(Q);
+  if (J > 59 || Z > 24 || Z === 24 && J > 0)
+    return;
+  return Z * 60 + J;
+}
+var E7 = /^[-*]\s*截止\s+(?:(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})\/(\d{1,2}))\s+(.+)$/;
+function n5($, Q, Z = 1) {
+  let J = E7.exec($);
+  if (!J)
+    return;
+  let V = Number(J[2] ?? J[4]), q = Number(J[3] ?? J[5]);
+  if (V < 1 || V > 12 || q < 1 || q > 31)
+    return;
+  return {
+    date: `${J[1] ? Number(J[1]) : V < Z - 6 ? Q + 1 : Q}-${p5(V)}-${p5(q)}`,
+    text: J[6].trim()
+  };
+}
+var L7 = /^[-*]\s*(週[一二三四五六日天]|每天|平日|週末)\s+(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})\s+(.+)$/;
+function k7($, Q = (/* @__PURE__ */ new Date()).getFullYear()) {
+  let Z = [], J = [], V = [];
+  return $.split(`
+`).forEach((q, B) => {
+    let z = q.trim();
+    if (!/^[-*]\s/.test(z))
+      return;
+    let Y = n5(z, Q);
+    if (Y) {
+      J.push(Y);
+      return;
+    }
+    let X = L7.exec(z), C = X && u4(X[2], X[3]), K = X && u4(X[4], X[5]);
+    if (!X || C === void 0 || K === void 0 || C === K) {
+      V.push({
+        file: f4,
+        reason: `第 ${B + 1} 行讀不懂（要寫「- 週一 08:10-12:00 名稱」）：${z.slice(0, 40)}`
+      });
+      return;
+    }
+    Z.push({
+      days: O7[X[1]],
+      start: C,
+      end: K,
+      name: X[6].trim()
+    });
+  }), { blocks: Z, deadlines: J, errors: V };
+}
+var h7 = {
+  x: "done",
+  X: "done",
+  " ": "todo",
+  ">": "moved",
+  "-": "dropped"
+}, w7 = /^[-*]\s*\[([xX >-])\]\s*(.*)$/, b7 = /^(\d{1,2}):(\d{2})\s+(.*)$/, c5 = /[（(]\s*(\d+)\s*分\s*[）)]/, y5 = /[（(]\s*太大塊\s*[）)]/, u7 = /^容量\s*[：:]\s*每週\s*(\d+)\s*塊/, f7 = /\s*[@＠]\s*(\S+)\s*$/;
+function x7($, Q) {
+  let Z = Q.trim(), J = { status: $, text: "" }, V = f7.exec(Z);
+  if (V)
+    J.file = V[1].replace(/\.md$/, ""), Z = Z.slice(0, V.index).trim();
+  let q = b7.exec(Z);
+  if (q) {
+    let z = u4(q[1], q[2]);
+    if (z === void 0 || z >= 1440)
+      return;
+    J.time = z, Z = q[3].trim();
+  }
+  let B = c5.exec(Z);
+  if (B)
+    J.minutes = Number(B[1]), Z = Z.replace(c5, "").trim();
+  if (y5.test(Z))
+    J.big = !0, Z = Z.replace(y5, "").trim();
+  if ($ === "moved" || $ === "dropped")
+    Z = Z.replace(/^(延後|刪掉)\s*[：:]\s*/, "");
+  if (Z === "")
+    return;
+  return J.text = Z, J;
+}
+var g7 = /^##\s*(週[一二三四五六日天])/, p7 = /^#\s.*?(\d{4}-\d{2}-\d{2})/;
+function c7($) {
+  let Q = _3.map(() => []), Z = [], J = [], V, q, B = [], z = [], Y = "none", X = (F, v, _) => J.push({
+    file: x4,
+    reason: `第 ${F + 1} 行${_}：${v.slice(0, 40)}`
+  });
+  $.split(`
+`).forEach((F, v) => {
+    let _ = F.trim(), w = p7.exec(_);
+    if (w && !_.startsWith("##"))
+      V = w[1];
+    if (_.startsWith("##")) {
+      let n = g7.exec(_);
+      if (n)
+        Y = _3.indexOf(n[1]);
+      else if (/^##\s*實際能做/.test(_))
+        Y = "settled";
+      else if (/^##\s*待排/.test(_))
+        Y = "inbox";
+      else if (/^##\s*截止日/.test(_))
+        Y = "due";
+      else
+        Y = "none", X(v, _, "標題讀不懂");
+      return;
+    }
+    if (!/^[-*]\s/.test(_))
+      return;
+    if (Y === "settled") {
+      let n = _.replace(/^[-*]\s*/, ""), r = u7.exec(n);
+      if (r)
+        q = Number(r[1]);
+      else
+        Z.push(n);
+      return;
+    }
+    if (Y === "inbox") {
+      let n = _.replace(/^[-*]\s*/, ""), r = /[（(]\s*截止\s*(\d{1,2}\/\d{1,2})\s*[）)]\s*$/.exec(n);
+      B.push({
+        text: r ? n.slice(0, r.index).trim() : n,
+        due: r?.[1]
+      });
+      return;
+    }
+    if (Y === "due") {
+      z.push({ line: _, at: v });
+      return;
+    }
+    let c = w7.exec(_), L = c && x7(h7[c[1]], c[2]);
+    if (typeof Y !== "number")
+      X(v, _, "不在任何一天底下");
+    else if (!L)
+      X(v, _, "讀不懂（要寫「- [ ] 19:00 內容（30 分）」）");
+    else
+      Q[Y]?.push(L);
+  });
+  let C = Number(V?.slice(0, 4)) || (/* @__PURE__ */ new Date()).getFullYear(), K = Number(V?.slice(5, 7)) || 1, M = [];
+  for (let F of z) {
+    let v = n5(F.line, C, K);
+    if (v)
+      M.push(v);
+    else
+      X(F.at, F.line, "讀不懂（要寫「- 截止 11/24 名稱」）");
+  }
+  return { weekStart: V, week: Q, settled: Z, capacity: q, inbox: B, deadlines: M, errors: J };
+}
+function y7($) {
+  let Q = [];
+  for (let Z of $.split(`
+`)) {
+    let J = /^[-*]\s*\d{4}-(\d{2})-(\d{2})\s*起\s*[：:]\s*排\s*(\d+)\s*塊[、,，]\s*做\s*(\d+)\s*塊(?:[、,，]\s*延後\s*(\d+)\s*塊)?/.exec(Z.trim());
+    if (J)
+      Q.push({
+        label: `${J[1]}/${J[2]} 起`,
+        planned: Number(J[3]),
+        done: Number(J[4]),
+        ...J[5] === void 0 ? {} : { postponed: Number(J[5]) }
+      });
+  }
+  return Q;
+}
+function r5($, Q, Z) {
+  if ($ === void 0 && Q === void 0)
+    return { errors: [] };
+  let J = Q === void 0 ? void 0 : c7(Q), V = Number(J?.weekStart?.slice(0, 4)) || void 0, q = $ === void 0 ? void 0 : k7($, V);
+  return {
+    schedule: {
+      fixed: q?.blocks ?? [],
+      weekStart: J?.weekStart,
+      week: J?.week ?? _3.map(() => []),
+      settled: J?.settled ?? [],
+      capacity: J?.capacity,
+      inbox: J?.inbox ?? [],
+      deadlines: [...q?.deadlines ?? [], ...J?.deadlines ?? []],
+      history: Z === void 0 ? [] : y7(Z)
+    },
+    errors: [...q?.errors ?? [], ...J?.errors ?? []]
+  };
+}
+function b3($) {
+  return ($.getDay() + 6) % 7;
+}
+function g4($) {
+  let Q = $.week.flat();
+  return {
+    planned: Q.filter((Z) => Z.status === "done" || Z.status === "todo").length,
+    done: Q.filter((Z) => Z.status === "done").length
+  };
+}
+function i5($, Q) {
+  if ($.weekStart === void 0)
+    return b3(Q);
+  let [Z, J, V] = $.weekStart.split("-").map(Number), q = Math.round((new Date(Q.getFullYear(), Q.getMonth(), Q.getDate()).getTime() - new Date(Z, J - 1, V).getTime()) / 86400000);
+  return q >= 0 && q < 7 ? b3(Q) : -1;
+}
+
+// src/schedule-view.ts
+var s5 = `
+.stage:has(.pane.sched:not([hidden])){grid-template-columns:1fr}
+.stage:has(.pane.sched:not([hidden])) aside{order:-1}
+.week{display:grid;grid-template-columns:repeat(7,minmax(122px,1fr));gap:8px;margin-top:12px;overflow-x:auto}
+.day{border:2px solid var(--ink);border-radius:10px;padding:6px 8px;background:#fff;min-width:0}
+.day h3{font-size:14px;display:flex;justify-content:space-between;gap:6px}
+.day.today{border-width:4px;background:#fff8e6}
+.day.today h3 em{background:var(--ink);color:#fff;font-style:normal;border-radius:6px;padding:0 6px;font-size:12px}
+.day ul{list-style:none;padding:0;margin-top:6px;display:grid;gap:4px}
+.day li{border:2px solid var(--ink);border-radius:6px;padding:2px 6px;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.day li.fx{background:#e4e0d6;border-color:#8a8678;color:#3b3a35}
+.day li.free{border-style:dashed;border-color:#8a8678;color:var(--ink-soft);background:none}
+.day li.tk.done{background:#d9eddc}
+.day li.tk.todo{background:#fff0c2}
+.day li.tk.moved{background:#dce7f6;font-style:italic}
+.day li.tk.dropped{background:#f2f2f2;color:var(--ink-soft);text-decoration:line-through}
+.day li b{font-weight:700;margin-right:4px}
+.day li button{font:inherit;color:inherit;background:none;border:0;padding:0;text-align:left;cursor:pointer;text-decoration:underline}
+.day li button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.sched .legend{margin-top:8px;font-size:12px;color:var(--ink-soft)}
+.sched .settled{margin-top:10px;font-size:13px}
+.sched .pending{margin-top:10px;border:2px solid var(--ink);border-radius:10px;padding:8px 12px;background:#fff8e6}
+.sched .pending textarea{display:block;width:100%;margin-top:6px;font:inherit;font-size:12px}
+.sched .msg{margin-top:8px;font-weight:700;min-height:1.5em}
+.sched .tools{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sched .tools .ask{flex-basis:100%;border:2px dashed var(--ink);border-radius:8px;padding:6px 10px}
+.sched button,.sched select,.sched input{font:inherit;font-size:13px}
+.sched button{border:2px solid var(--ink);border-radius:8px;background:#fff;color:var(--ink);padding:1px 8px;cursor:pointer}
+.sched button:focus-visible,.sched select:focus-visible,.sched input:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.day li.tk[draggable=true]{cursor:grab}
+.day li.tk .more{margin-left:4px;font-size:12px;text-decoration:none}
+.day li.menu{border-style:double;border-width:4px;background:#fff;display:grid;gap:6px}
+.day li.menu .mrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.nowbox{margin-top:12px;border:2px solid var(--ink);border-radius:10px;padding:6px 12px;background:#fff8e6}
+.cap{margin:4px 0}
+.cap .bar{position:relative;height:10px;border:2px solid var(--ink);border-radius:5px;background:#fff;display:flex;overflow:visible}
+.cap .bar i{display:block;height:100%}
+.cap .bar .f{background:repeating-linear-gradient(45deg,#8a8678 0 3px,#fff 3px 6px)}
+.cap .bar .p{background:var(--ink)}
+.cap .bar .line{position:absolute;top:-5px;bottom:-5px;width:0;border-left:3px dotted var(--ink)}
+.cap p{font-size:11px;color:var(--ink-soft);line-height:1.35;margin-top:3px}
+.deadlines,.history,.inbox{margin-top:14px}
+.deadlines ul,.history ul,.inbox ul{list-style:none;padding:0;margin-top:4px;font-size:13px}
+.history li{display:grid;grid-template-columns:70px 120px 1fr;gap:8px;align-items:center}
+.history .hb{position:relative;height:12px;border:2px solid var(--ink);border-radius:4px;display:block}
+.history .hb i{position:absolute;left:0;top:0;height:100%}
+.history .hb .a{background:#fff;border-right:2px solid var(--ink)}
+.history .hb .b{background:var(--ink);height:50%;top:25%}
+.inbox form{margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+@media print{
+body{background:#fff}
+.hud,.notice,.map-scroll,.log,.pane:not(.sched),.sched .pending,.sched .tools,.sched .msg,.sched .more,.sched .inbox form,.sched .legend~.sub{display:none!important}
+.stage{display:block;padding:0}
+.panel{box-shadow:none;border:0;padding:0}
+.pane.sched[hidden]{display:block}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;overflow:visible}
+.day,.day li{border-color:#000;background:#fff!important;color:#000;break-inside:avoid}
+.day li{font-size:10px}
+.cap .bar .f{background:repeating-linear-gradient(45deg,#000 0 2px,#fff 2px 5px)}
+}
+@media (max-width:599px){.week{display:block}.day{margin-bottom:8px}}
+`;
+function l5($) {
+  if (!$.schedule)
+    return;
+  let { planned: Q } = g4($.schedule);
+  return Q > 0 ? `排 ${Q} 塊` : "固定行程";
+}
+function m7($, Q) {
+  if (Q === void 0)
+    return;
+  return $.districts.find((Z) => Z.id === Q || Z.file.replace(/\.md$/, "") === Q)?.id;
+}
+function n7($) {
+  let Q = _3.map(() => "");
+  if ($.weekStart === void 0)
+    return Q;
+  let [Z, J, V] = $.weekStart.split("-").map(Number);
+  if (b3(new Date(Z, J - 1, V)) !== 0)
+    return Q;
+  let q = (B) => String(B).padStart(2, "0");
+  return _3.map((B, z) => {
+    let Y = new Date(Z, J - 1, V + z);
+    return `${q(Y.getMonth() + 1)}/${q(Y.getDate())}`;
+  });
+}
+var r7 = /排\s*(\d+)\s*塊[、,，]\s*做\s*(\d+)\s*塊(?:[、,，]\s*延後\s*(\d+)\s*塊)?/, i7 = 0.8;
+function s7($) {
+  let Q = $.history.at(-1), Z = Q?.planned, J = Q?.done, V = Q?.postponed ?? 0;
+  if (Q === void 0) {
+    let B = r7.exec($.settled.at(-1) ?? "");
+    if (B === null)
+      return !0;
+    Z = Number(B[1]), J = Number(B[2]), V = Number(B[3] ?? 0);
+  }
+  if (Z === void 0 || J === void 0)
+    return !0;
+  let q = Z + V;
+  return q === 0 ? !0 : J / q < i7;
+}
+function l7($, Q) {
+  let Z = $.schedule, J = i5(Z, Q);
+  return {
+    fixed: Z.fixed,
+    week: Z.week.map((V) => V.map((q) => ({ ...q, target: m7($, q.file) }))),
+    dates: n7(Z),
+    weekStart: Z.weekStart,
+    today: J === -1 ? -1 : b3(Q),
+    inbox: Z.inbox,
+    deadlines: Z.deadlines,
+    history: Z.history,
+    capacity: Z.capacity,
+    halfCap: s7(Z)
+  };
+}
+var o7 = ($) => `${$.getFullYear()}-${String($.getMonth() + 1).padStart(2, "0")}-${String($.getDate()).padStart(2, "0")}`, o5 = `(${g5.toString()})((${b4.toString()})());`;
+function d5($, Q) {
+  let Z = $.schedule;
+  if (!Z)
+    return "";
+  let J = b4(), V = l7($, Q), { planned: q, done: B } = g4(Z), z = V.today === -1 ? `<p class="sub">這張表是 ${T(Z.weekStart ?? "")} 起的一週，今天不在其中；請對 Claude 說「排這週」更新。</p>` : "", Y = Z.capacity === void 0 ? Z.settled : [`容量：每週 ${Z.capacity} 塊`, ...Z.settled], X = Y.length > 0 ? `<ul class="members settled">${Y.map((M) => `<li>${T(M)}</li>`).join("")}</ul>` : "", C = Q.getHours() * 60 + Q.getMinutes(), K = JSON.stringify(V).replace(/</g, "\\u003c");
+  return `<div class="pane sched" data-for="clock" hidden><h2>行程表<span class="lv">本週排 ${q} 塊、做了 ${B} 塊</span></h2>${z}<div class="pending" hidden></div><p class="msg" role="status" aria-live="polite"></p><div class="tools"></div><p class="legend">圖例：▪ 固定行程　◇ 空檔　✓ 做了　○ 還沒　→ 延後　✕ 刪掉</p><div class="sbody">${J.bodyHtml(V, C, o7(Q))}</div>${X}<script type="application/json" id="sched-data">${K}<\/script></div>`;
+}
+
+// src/defs.ts
+var d7 = j("polygon", {
+  points: t([
+    [0, 0],
+    [V3, d],
+    [0, 2 * d],
+    [-V3, d]
+  ]),
+  stroke: "rgba(23,38,43,.1)",
+  "stroke-width": 1
+});
+function q4($, Q, Z, J = !1) {
+  return j("linearGradient", { id: $, ...J ? { x1: 0, y1: 0, x2: 1, y2: 1 } : { x2: 0, y2: 1 } }, j("stop", { offset: 0, "stop-color": Q }) + j("stop", { offset: 1, "stop-color": Z }));
+}
+function a7($, Q, Z) {
+  return q4(`${$}L`, y(Q, 0.97), y(Q, 0.82)) + q4(`${$}R`, y(Q, 0.76), y(Q, 0.6)) + q4(`${$}T`, y(Z, 1.1), y(Z, 0.86), !0) + q4(`${$}D`, y(Z, 0.78), y(Z, 0.57));
+}
+var t7 = Object.fromEntries(Object.entries(k3).map(([$, Q]) => {
+  let { wall: Z, roof: J } = a3[$];
+  return [Q, () => a7(Q, Z, J)];
+})), p4 = { repeatCount: "indefinite" }, a5 = { fill: "#a3abad", stroke: "#5d6a6e", "stroke-width": 0.6 };
+function t5([$, Q], Z, J) {
+  if (!J)
+    return j("circle", { cx: $, cy: Q, r: 3, ...a5 });
+  let V = (q, B) => j("animate", {
+    attributeName: q,
+    values: B,
+    dur: "3s",
+    begin: `${Z}s`,
+    ...p4
+  });
+  return j("circle", { cx: $, cy: Q, r: 3, ...a5, opacity: 0 }, V("cy", `${Q};${Q - 22}`) + V("cx", `${$};${$ + 4};${$ + 9}`) + V("r", "3;7") + V("opacity", ".9;0"));
+}
+function e7($, Q, Z, J, V) {
+  let q = R(Q.x + Q.w / 2, Q.y + Q.d / 2, Z + H3), B = [q[0], q[1] - S4], z = { stroke: g, "stroke-width": 1.4 };
+  if ($ === "academy")
+    return Z3(q, B, z) + m([B, [B[0] + 10, B[1] + 3], [B[0], B[1] + 6]], J("#e9a23b"), { "stroke-width": 1.2 });
+  if ($ === "studio") {
+    let M = B[1] + 4, F = j("circle", { cx: B[0], cy: B[1], r: 2.4, fill: J("#e9503b"), stroke: g }, V ? j("animate", {
+      attributeName: "opacity",
+      values: "1;.25;1",
+      dur: "1.6s",
+      ...p4
+    }) : "");
+    return Z3(q, B, z) + Z3([B[0] - 5, M], [B[0] + 5, M], z) + F;
+  }
+  let Y = { x: Q.x + Q.w * 0.55, y: Q.y + Q.d * 0.2, w: 0.16, d: 0.16 }, X = Z + H3 - 6, C = R(Y.x + 0.08, Y.y + 0.08, X + 3), K = [0, 1, 2].map((M) => t5(C, M, V)).join("");
+  return $3(Y, Z + 8, X - Z - 8, "#8a5a3c", J) + (V ? K : t5(C, 0, !1));
+}
+function e5($, Q, Z, J) {
+  let V = k3[$], { wall: q, roof: B } = a3[$], z = e([0, 0]), Y = T4($, Q), X = Z ? O3 : G3, C = $ === "academy" && Q >= 2 ? 2 : 1, K = Z ? {} : { left: `url(#${V}L)`, right: `url(#${V}R)` }, M = Z ? {} : { left: `url(#${V}T)`, right: `url(#${V}D)` }, F = m([
+    R(z.x + z.w * 0.3, z.y + z.d, 0),
+    R(z.x + z.w * 0.5, z.y + z.d, 0),
+    R(z.x + z.w * 0.5, z.y + z.d, 14),
+    R(z.x + z.w * 0.3, z.y + z.d, 14)
+  ], X(y(B, 0.7)), { "stroke-width": 1.1 });
+  return $3(z, 0, Y, q, X, K) + L3(z, Y, C) + F + E3(z, Y, H3, B, X, M) + (Q >= 3 ? e7($, z, Y, X, J && !Z) : "");
+}
+function $8($, Q) {
+  let Z = t3[$], J = e([0, 0], h3), { x: V, y: q, w: B, d: z } = J, Y = R(V + B / 2, q + z / 2, Z.wall + Z.peak), X = R(V + B, q + z, Z.wall), C = R(V + B, q, Z.wall), [K, M] = [Y[0], Y[1] - d3], F = (_) => t([
+    [K, M],
+    [K + 14, M + 4 + _],
+    [K, M + 8]
+  ]), v = j("polygon", {
+    points: F(0),
+    fill: "currentColor",
+    stroke: g,
+    "stroke-width": 1.2,
+    "stroke-linejoin": "round"
+  }, Q ? j("animate", {
+    attributeName: "points",
+    values: [F(0), F(3), F(-1), F(0)].join(";"),
+    dur: "1.8s",
+    ...p4
+  }) : "");
+  return $3(J, 0, Z.wall, a3.academy?.wall ?? "#e4ddd0", G3, {
+    left: "url(#aL)",
+    right: "url(#aR)"
+  }) + L3(J, Z.wall, Z.rows) + E3(J, Z.wall, Z.peak, "#000000", G3, {
+    left: "currentColor",
+    right: "currentColor"
+  }) + j("polygon", { points: t([X, C, Y]), fill: "#000", opacity: 0.28 }) + Z3(Y, [K, M], { stroke: g, "stroke-width": 1.6 }) + v;
+}
+var Q8 = m([
+  [-9, -4],
+  [0, 0.5],
+  [0, 6.5],
+  [-9, 2]
+], "currentColor", { "stroke-width": 1.2 }) + m([
+  [0, 0.5],
+  [9, -4],
+  [9, 2],
+  [0, 6.5]
+], "currentColor", { "stroke-width": 1.2 }) + j("polygon", {
+  points: "0,0.5 9,-4 9,2 0,6.5",
+  fill: "#000",
+  opacity: 0.25
+}) + m([
+  [-9, -4],
+  [0, -8.5],
+  [9, -4],
+  [0, 0.5]
+], "#fffaf0", { "stroke-width": 1.2 });
+function Z8() {
+  let $ = /* @__PURE__ */ new Map;
+  $.set("t", { gradients: [], body: () => d7 }), $.set("palm", { gradients: [], body: F5 }), $.set("car", { gradients: [], body: () => Q8 });
+  for (let [Q, Z] of Object.entries(k3))
+    for (let J of [1, 2, 3])
+      $.set(`${Z}${J}`, {
+        gradients: [Z],
+        body: (V) => e5(Q, J, !1, V)
+      }), $.set(`${Z}${J}f`, {
+        gradients: [],
+        body: (V) => e5(Q, J, !0, V)
+      });
+  for (let Q of m3)
+    $.set(I4[Q], {
+      gradients: ["a"],
+      body: (Z) => $8(Q, Z)
+    });
+  return $;
+}
+var B4 = Z8(), J$ = [...B4.keys()];
+function $6($) {
+  let Q = /* @__PURE__ */ new Set;
+  for (let Z of $.matchAll(/href="#([A-Za-z0-9_-]+)"/g))
+    if (B4.has(Z[1]))
+      Q.add(Z[1]);
+  return [...Q];
+}
+function Q6($, Q) {
+  let Z = [...new Set($)].filter((q) => B4.has(q)).sort().map((q) => [q, B4.get(q)]);
+  if (Z.length === 0)
+    return "";
+  let J = [...new Set(Z.flatMap(([, q]) => q.gradients))].sort(), V = Z.map(([q, B]) => j("symbol", { id: q, overflow: "visible" }, B.body(Q))).join("");
+  return j("defs", {}, J.map((q) => t7[q]?.() ?? "").join("") + V);
+}
+
+// src/wall.ts
+var u3 = "#d8c7a0", D3 = { stroke: g, "stroke-width": 1.2, "stroke-linejoin": "round" };
+function f3($, Q, Z, J, V, q) {
+  let B = (K) => [K[0], K[1] - V], z = l($, Q), Y = l($ + Z, Q), X = l($ + Z, Q + J), C = l($, Q + J);
+  return j("polygon", {
+    points: t([C, X, B(X), B(C)]),
+    fill: y(q, 0.86),
+    ...D3
+  }) + j("polygon", {
+    points: t([X, Y, B(Y), B(X)]),
+    fill: y(q, 0.7),
+    ...D3
+  }) + j("polygon", {
+    points: t([B(z), B(Y), B(X), B(C)]),
+    fill: q,
+    ...D3
+  });
+}
+var c4 = 20, Z6 = 7, z4 = -0.5;
+function J6($, Q) {
+  let Z = "";
+  for (let V = 0;V < $; V++)
+    Z += Q ? f3(V, z4, 1, 0.4, c4, u3) : f3(z4, V, 0.4, 1, c4, u3);
+  let J = { transform: `translate(0 ${-c4})` };
+  for (let V = 0;V < $; V++) {
+    let q = V + 0.3;
+    Z += j("g", J, Q ? f3(q, z4 + 0.1, 0.4, 0.2, Z6, u3) : f3(z4 + 0.1, q, 0.2, 0.4, Z6, u3));
+  }
+  return Z;
+}
+function V6($, Q, Z, J) {
+  let V = f3($, Q, 1, 1, 70, u3), [q, B] = l($ + 0.5, Q + 0.5), z = B - 70, Y = j("polygon", {
+    points: t([
+      [q - 36, z + 2],
+      [q + 36, z + 2],
+      [q, z - 34]
+    ]),
+    fill: Z ? "#b4442f" : "#8a6d3b",
+    ...D3
+  }), X = j("path", {
+    d: `M${q} ${z - 34} v-20`,
+    stroke: g,
+    "stroke-width": 1.8
+  }), C = j("path", {
+    d: `M${q} ${z - 54} l20 6 l-20 6z`,
+    fill: Z ? "#b4442f" : "#2f6b4f",
+    ...D3
+  }), K = Z ? j("circle", {
+    cx: q + 26,
+    cy: z + 24,
+    r: 12,
+    fill: "#b4442f",
+    ...D3
+  }) + j("text", {
+    x: q + 26,
+    y: z + 28.5,
+    "text-anchor": "middle",
+    "font-size": J > 99 ? 9 : 12,
+    "font-weight": 700,
+    fill: "#fff"
+  }, T(String(J))) : "";
+  return V + Y + X + C + K;
+}
+function q6($, Q) {
+  let Z = Q > 0, J = J6($, !0) + J6($, !1), V = V6($ - 0.1, -0.9, !1, 0), q = j3({ class: "b", "data-id": "guard" }, `城牆守衛：共 ${Q} 次警報`, V6(-0.9, $ - 0.1, Z, Q)), B = j("g", { "aria-hidden": "true" }, J + V);
+  return j("g", { class: "wall" }, B + q);
+}
+
+// src/svg.ts
+var Y4 = { repeatCount: "indefinite" }, J8 = 3.4, V8 = 70;
+function X6($) {
+  return $.items.length === 0 ? 0 : J8;
+}
+function q8($, Q, Z) {
+  let J = $.n / 2 - 0.5, V = $.pool[0], q = $.pool[1];
+  if (Q >= V && Q <= V + 1 && Z >= q && Z <= q + 1)
+    return "#2a7f86";
+  let Y = Math.hypot(Q - J, Z - J) < X6($) ? "#8fbf72" : "#e3cf9c";
+  return (Q + Z) % 2 ? y(Y, 0.95) : Y;
+}
+function B8($, Q, Z) {
+  let [J, V] = l(Q, Z), q = $.n / 2 - 0.5, z = Math.hypot(Q - q, Z - q) < X6($) ? "#5f9150" : "#c9ad6d", Y = 9, X = "";
+  if (Q === $.n - 1 || Z === $.n - 1)
+    X += j("polygon", {
+      points: t([
+        [J, V + 2 * d],
+        [J + V3, V + d],
+        [J + V3, V + d + 9],
+        [J, V + 2 * d + 9]
+      ]),
+      fill: y(z, 0.75)
+    }), X += j("polygon", {
+      points: t([
+        [J, V + 2 * d],
+        [J - V3, V + d],
+        [J - V3, V + d + 9],
+        [J, V + 2 * d + 9]
+      ]),
+      fill: z
+    });
+  return X += j("use", { href: "#t", x: J, y: V, fill: q8($, Q, Z) }), X;
+}
+function z8($) {
+  let Q = "";
+  for (let Z = 0;Z <= 2 * ($.n - 1); Z++)
+    for (let J = 0;J < $.n; J++) {
+      let V = Z - J;
+      if (V >= 0 && V < $.n)
+        Q += B8($, J, V);
+    }
+  return Q;
+}
+var B6 = "#ebdcb4", y4 = "#d8ccb0", Y8 = "#a8977a", X8 = 0.16, U8 = g, W8 = "#726850", P8 = "#17262b";
+function G8($, Q) {
+  return $.dashes?.get(Q) ?? "none";
+}
+function U6($, Q, Z, J = 4) {
+  return j("path", {
+    d: $,
+    stroke: U8,
+    "stroke-width": J + 3,
+    class: "road-outline"
+  }) + j("path", {
+    d: $,
+    stroke: Q,
+    "stroke-width": J,
+    "stroke-dasharray": Z,
+    class: "road-line"
+  });
+}
+function K8($, Q) {
+  return [l($, Q), l($ + 1, Q), l($ + 1, Q + 1), l($, Q + 1)];
+}
+function j8($) {
+  let Q = "", Z = "";
+  for (let q of $.roads.keys()) {
+    let [B, z] = q.split(",").map(Number), [Y, X, C, K] = K8(B, z), M = $.roads.get(q) ?? y4, F = /^#[0-9a-f]{6}$/i.test(M) ? i3(y4, M, X8) : y4;
+    Q += j("use", { href: "#t", x: Y[0], y: Y[1], fill: F });
+    let v = [
+      [[B, z - 1], Y, X],
+      [[B + 1, z], X, C],
+      [[B, z + 1], C, K],
+      [[B - 1, z], K, Y]
+    ];
+    for (let [[_, w], c, L] of v) {
+      if ($.roads.has(p([_, w])))
+        continue;
+      Z += j("path", { d: `M${c[0]} ${c[1]} L${L[0]} ${L[1]}` });
+    }
+  }
+  let J = /* @__PURE__ */ new Map;
+  for (let { a: q, b: B, color: z } of $.links) {
+    let [Y, X] = R(q[0] + 0.5, q[1] + 0.5), [C, K] = R(B[0] + 0.5, B[1] + 0.5);
+    J.set(z, `${J.get(z) ?? ""}M${Y} ${X}L${C} ${K}`);
+  }
+  let V = [...J].map(([q, B]) => U6(B, q, G8($, q))).join("");
+  return j("g", { class: "roads", "aria-hidden": "true" }, Q + j("g", { stroke: Y8, "stroke-width": 1.6, fill: "none" }, Z) + j("g", {
+    "stroke-linecap": "round",
+    fill: "none"
+  }, V));
+}
+function C8($, Q) {
+  let Z = $.view.x1 + Q, J = Z / 460, V = j("defs", {}, j("linearGradient", { id: "hill-fade", x1: 0, y1: 0, x2: 0, y2: 1 }, j("stop", { offset: 0.55, "stop-color": B6 }) + j("stop", { offset: 1, "stop-color": B6, "stop-opacity": 0 }))), q = j("path", {
+    d: `M${-Z} -30 C${-320 * J} -64 ${-210 * J} -56 ${-90 * J} -46 C${30 * J} -36 ${150 * J} -76 ${280 * J} -62 C${360 * J} -54 ${420 * J} -48 ${Z} -52 L${Z} 40 L${-Z} 40Z`,
+    fill: "url(#hill-fade)"
+  }), B = $.endgame;
+  if (!B)
+    return V + q;
+  let z = j("path", {
+    d: "M-30 -52 V-70 h8 v-8 h8 v8 h6 v-14 l8 -8 l8 8 v14 h6 v-8 h8 v8 h8 V-52Z",
+    fill: "#cdbf9d"
+  }), Y = `終點：${B.name}`, X = T3(Y), C = j("rect", {
+    x: -X / 2,
+    y: -52,
+    width: X,
+    height: 20,
+    rx: 10,
+    fill: "#fbf7ec",
+    stroke: "#8a7a5a",
+    "stroke-width": 1.2
+  }), K = j("text", {
+    x: 0,
+    y: -38,
+    "text-anchor": "middle",
+    "font-size": 13,
+    fill: "#5d4f33"
+  }, T(Y));
+  return V + q + z + C + K;
+}
+function F8($, Q) {
+  let [Z, J] = l($.pool[0] + 1, $.pool[1] + 1), V = Q ? j("animate", {
+    attributeName: "rx",
+    values: "44;58;44",
+    dur: "4s",
+    ...Y4
+  }) + j("animate", {
+    attributeName: "opacity",
+    values: ".25;.5;.25",
+    dur: "4s",
+    ...Y4
+  }) : "";
+  return j("ellipse", { cx: Z, cy: J, rx: 52, ry: 20, fill: "#6fc0bd", opacity: 0.35 }, V);
+}
+function M8($) {
+  return j("animateTransform", {
+    attributeName: "transform",
+    type: "translate",
+    values: "0 0;0 -5;0 0",
+    keyTimes: "0;.5;1",
+    calcMode: "spline",
+    keySplines: ".3 0 .6 1;.4 0 .7 1",
+    dur: "1.1s",
+    begin: `${Math.round($ * 0.37 % 1.1 * 100) / 100}s`,
+    ...Y4
+  });
+}
+var N8 = 6;
+function H8($, Q) {
+  let Z = [], J = [];
+  for (let V of Q) {
+    if ($.roads.has(p(V)))
+      J.push(V);
+    else
+      J = [];
+    if (J.length > Z.length)
+      Z = [...J];
+  }
+  return Z;
+}
+function R8($, Q) {
+  if (!Q)
+    return "";
+  let Z = /* @__PURE__ */ new Map;
+  for (let J of $.routes) {
+    let V = H8($, J.tiles);
+    if (V.length >= 2 && V.length > (Z.get(J.color)?.length ?? 0))
+      Z.set(J.color, V);
+  }
+  return [...Z].sort((J, V) => V[1].length - J[1].length).slice(0, N8).map(([J, V], q) => {
+    let B = V.map(([C, K]) => R(C + 0.5, K + 0.5)), Y = `M${[...B, ...B.slice(0, -1).reverse()].map(([C, K]) => `${C} ${K + 2}`).join("L")}`, X = j("animateMotion", {
+      path: Y,
+      dur: `${Math.max(4, V.length * 1.6)}s`,
+      begin: `-${q * 1.3}s`,
+      ...Y4
+    });
+    return j("use", { href: "#car", color: J }, X);
+  }).join("");
+}
+function v8($, Q, Z = 0, J = !1) {
+  let V = $.goalColor ? s3($.goalColor) : $.dim ? "#efe8da" : "#fffaf0", q = $.goalColor ? "#fff" : $.dim ? W8 : g, B = $.cx - $.w / 2, z = j("rect", {
+    x: B,
+    y: $.cy - C3 / 2,
+    width: $.w,
+    height: C3,
+    rx: C3 / 2,
+    fill: V,
+    stroke: $.dim ? "#b9b0a0" : g,
+    "stroke-width": 1.5
+  }), Y = J ? M8(Z) : "", X = $.quest ? j("circle", {
+    cx: B + 18,
+    cy: $.cy,
+    r: 9,
+    fill: "#e9a23b",
+    stroke: g,
+    "stroke-width": 1
+  }, Y) + j("text", {
+    x: B + 18,
+    y: $.cy + 4.5,
+    "text-anchor": "middle",
+    "font-size": S3.quest,
+    "font-weight": 700,
+    fill: P8
+  }, `${Y}!`) : "", C = B + 9 + ($.quest ? l3 : 0), K = $.w - 18 - ($.quest ? l3 : 0) - ($.lv ? _4 : 0), M = j("text", {
+    x: C + K / 2,
+    y: $.cy + 5,
+    "text-anchor": "middle",
+    "font-size": S3.name,
+    "font-weight": 700,
+    fill: q
+  }, T($.text)), F = $.lv === void 0 ? "" : j("rect", {
+    x: B + $.w - 9 - N3.w,
+    y: $.cy - N3.h / 2,
+    width: N3.w,
+    height: N3.h,
+    rx: 5,
+    fill: g
+  }) + j("text", {
+    x: B + $.w - 9 - N3.w / 2,
+    y: $.cy + 4.5,
+    "text-anchor": "middle",
+    "font-size": S3.lv,
+    "font-weight": 700,
+    fill: "#fff"
+  }, `Lv.${$.lv}`);
+  return j("g", { class: "lbl", "data-id": Q }, z + X + M + F);
+}
+function _8($, Q) {
+  if ($.goal)
+    return D5($.id, $.goal.landmark, $.goal.color, $.tile, $.goal.name);
+  if ($.library !== void 0)
+    return O5($);
+  if ($.clock)
+    return k5($);
+  return _5($.district, $.tile, Q);
+}
+function D8($) {
+  return $.legend.map((Q) => {
+    let Z = Q.y + 11, J = j("rect", {
+      x: Q.x - 5,
+      y: Q.y,
+      width: Q.w + 10,
+      height: 22,
+      rx: 11,
+      fill: "#fbf7ec",
+      stroke: g,
+      "stroke-width": 1.2
+    }), V = j("g", { "stroke-linecap": "round", fill: "none", "aria-hidden": "true" }, U6(`M${Q.x + 2} ${Z} h20`, Q.color, Q.dash ?? "none")), q = j("text", { x: Q.x + 30, y: Z + 4.5, "font-size": S3.legend, fill: "#4a5a5e" }, T(Q.text));
+    return j("g", { class: "legend" }, J + V + q);
+  }).join("");
+}
+function A8($) {
+  let [Q, Z] = l($.pool[0] + 1, $.pool[1] + 1), J = j("rect", {
+    x: Q - 170,
+    y: Z + 58,
+    width: 340,
+    height: 30,
+    rx: 15,
+    fill: "#fbf7ec",
+    stroke: g,
+    "stroke-width": 1.5
+  }), V = j("text", {
+    x: Q,
+    y: Z + 78,
+    "text-anchor": "middle",
+    "font-size": 14,
+    "font-weight": 700,
+    fill: g
+  }, T(V4));
+  return j("g", { class: "empty-hint" }, J + V);
+}
+var S8 = "綠洲城市地圖", z6 = "oasis-map-title", Y6 = "oasis-map-desc";
+function T8($, Q) {
+  let Z = Q.endgame ? `遠方是終點「${Q.endgame.name}」。` : "", J = Q.legend.map((q) => `${q.text}（${I8(q.dash)}）`).join("、"), V = J === "" ? "" : `道路：${J}。`;
+  return `${Z}城裡有 ${Q.items.length} 棟可以點選的建築，用 Tab 鍵切換、Enter 或空白鍵開啟說明。${V}`;
+}
+function I8($) {
+  return $ === void 0 || $ === "none" ? "實線" : `虛線 ${$}`;
+}
+function W6($, Q = f5($), Z = {}) {
+  let J = Z.animate ?? !0, V = $.guard ? V8 : 0, { x0: q, y0: B, x1: z, y1: Y } = Q.view, X = (L) => L.tile[0] + L.tile[1] + 2 * L.size, C = [...Q.items].sort((L, n) => X(L) - X(n)), K = C.map((L) => G5(e(L.tile, L.size), L.top)).join(""), M = 0, F = C.map((L) => v8(L.label, L.id, L.label.quest ? M++ : 0, J)).join(""), v = j("g", { class: "ground", "aria-hidden": "true" }, z8(Q)) + j8(Q) + j("g", { class: "water", "aria-hidden": "true" }, F8(Q, J)) + ($.guard ? q6(Q.n, $.guard.total) : "") + j("g", { class: "palms", "aria-hidden": "true" }, Q.palms.map(M5).join("")) + j("g", { class: "shadows", "aria-hidden": "true" }, K) + j("g", { class: "cars", "aria-hidden": "true" }, R8(Q, J)) + C.map((L) => _8(L, J)).join("") + j("g", { class: "labels", "aria-hidden": "true" }, F) + D8(Q) + (J4($) ? A8(Q) : ""), w = j("title", { id: z6 }, T(S8)) + j("desc", { id: Y6 }, T(T8($, Q))) + j("g", { class: "horizon", "aria-hidden": "true" }, C8(Q, V)) + Q6($6(v), J) + v, c = z - q + 2 * V;
+  return j("svg", {
+    xmlns: "http://www.w3.org/2000/svg",
+    viewBox: `${q - V} ${B} ${c} ${Y - B}`,
+    role: "group",
+    "aria-labelledby": z6,
+    "aria-describedby": Y6,
+    style: `--vb-w:${Math.round(c)}`,
+    "font-family": "'Noto Sans CJK TC', sans-serif"
+  }, w);
+}
+
+// src/view.ts
+function m4($, Q) {
+  if ($.goal === i)
+    return "接綠洲核心";
+  let Z = Q.goals.find((J) => J.id === $.goal);
+  return Z ? `通往 ${Z.name}` : "還沒接到目標";
+}
+var O8 = {
+  building: "在建",
+  waiting: "等你動手",
+  auto: "自動運轉",
+  dormant: "休眠"
+}, E8 = ["building", "waiting", "auto"], L8 = "日一二三四五六";
+function k8($) {
+  let Q = L8[$.getDay()];
+  return `${$.getMonth() + 1} 月 ${$.getDate()} 日 週${Q}`;
+}
+function h8($, Q) {
+  if ($.state === "waiting") {
+    let J = r3($.since, Q);
+    return { when: ($.due ?? (J === 0 ? "今天新增" : `等 ${J} 天`)).split(`
+`), tone: "who" };
+  }
+  let Z = $.statusText ?? $.due ?? "";
+  return {
+    when: Z === "" ? [] : Z.split(`
+`),
+    tone: $.statusText ? "ok" : "plain"
+  };
+}
+function w8($, Q, Z) {
+  return {
+    goal: m4($, Q),
+    name: $.name,
+    next: $.next,
+    ...h8($, Z),
+    progress: $.progress
+  };
+}
+function b8($) {
+  if ($.districts.length === 0)
+    return $.goals.length === 0 ? V4 : "還沒有街區，先在 districts/ 放一張卡片。";
+  let Q = (Z) => $.districts.filter((J) => J.state === Z).length;
+  return `今天 ${Q("building")} 條線在建、${Q("waiting")} 件等你動手、${Q("auto")} 條自動運轉。`;
+}
+function P6($, Q) {
+  let Z = E8.map((J) => {
+    let V = $.districts.filter((q) => q.state === J).map((q) => w8(q, $, Q));
+    return { state: J, title: O8[J], count: V.length, rows: V };
+  }).filter((J) => J.count > 0);
+  return {
+    dateLabel: k8(Q),
+    lede: b8($),
+    groups: Z,
+    dormant: $.districts.filter((J) => J.state === "dormant").map((J) => J.name),
+    errors: $.errors,
+    orphans: $.orphans,
+    hud: {
+      goals: $.goals.filter((J) => J.kind === "goal").length,
+      tasks: $.districts.filter((J) => J.state === "waiting").length,
+      building: $.districts.filter((J) => J.state === "building").length,
+      auto: $.districts.filter((J) => J.state === "auto").length
+    }
+  };
+}
+
+// src/page.ts
+var u8 = `
+:root{--sky-top:#bfdcd6;--sky-low:#f1e2bd;--water:#1f6f78;--palm:#2f6b4f;--sun:#e3a12f;--ink:#17262b;--ink-soft:#55666a;--panel:#fbf7ec}
+*{box-sizing:border-box;margin:0}
+body{background:linear-gradient(var(--sky-top),var(--sky-low) 70%) fixed;min-height:100vh;color:var(--ink);font-family:"Noto Sans CJK TC",sans-serif;font-size:14px;line-height:1.5}
+.hud{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 22px}
+.hud h1{font-size:22px;font-weight:700;margin-right:8px;letter-spacing:.06em}
+.chip{display:flex;align-items:center;gap:8px;background:rgba(251,247,236,.85);border:2px solid var(--ink);border-radius:10px;padding:4px 12px 4px 6px;font-weight:700;box-shadow:0 3px 0 var(--ink)}
+.chip .ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:#fff;font-size:13px}
+button.chip{font:inherit;color:inherit;cursor:pointer}
+.chip .ic.dark{color:#17262b}
+.chip small{font-weight:400;color:var(--ink-soft)}
+.hud .day{margin-left:auto;font-weight:700}
+.notice{margin:0 22px 10px;padding:8px 14px;border:2px dashed #b4442f;border-radius:10px;background:#fff1ec;color:#7d2a1b;font-size:13px}
+.notice b{display:block}
+.notice li{margin-left:18px}
+.stage{display:grid;grid-template-columns:1fr 330px;gap:18px;padding:0 22px 22px}
+svg.city{width:100%;height:auto;display:block;min-width:calc(var(--vb-w) * 0.86px)}
+.map-scroll{min-width:0;overflow-x:auto}
+.b,.lbl{cursor:pointer}
+.b.sel .ring{display:inline}
+.b:focus{outline:none}
+.b:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.b:focus-visible .ring{display:inline;stroke:var(--ink);stroke-width:4}
+button.chip:focus-visible,.log button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+aside{align-self:start}
+.panel{background:var(--panel);border:2px solid var(--ink);border-radius:14px;box-shadow:0 5px 0 var(--ink);padding:16px}
+.panel h2{font-size:19px}
+.lv{display:inline-block;background:var(--ink);color:#fff;border-radius:6px;padding:0 7px;font-size:12px;margin-left:6px;vertical-align:3px}
+.sub{color:var(--ink-soft);font-size:13px}
+.xp{margin:12px 0 4px;height:12px;border:2px solid var(--ink);border-radius:7px;background:#fff;overflow:hidden}
+.xp span{display:block;height:100%;background:linear-gradient(90deg,#f0c25a,var(--sun))}
+.xp-label{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-soft)}
+.quest{margin-top:14px;border:2px dashed var(--sun);border-radius:10px;padding:10px 12px;background:#fff8e6}
+.quest b{display:block}
+.goal-link{margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px}
+.goal-link i{flex:none;width:26px;height:6px;border-radius:3px}
+.members{margin-top:12px;font-size:13px;list-style:none;padding:0}
+.log ul{padding:0}
+.members li{padding:3px 0;border-top:1px solid #e6dcc4}
+.strengths{margin-top:14px}.strengths h3{font-size:14px}
+.log{margin-top:18px}
+.log h3{font-size:14px;margin-bottom:6px}
+.log li{list-style:none;border-top:1px solid #e6dcc4}
+.log button{display:grid;grid-template-columns:18px 1fr auto;gap:8px;width:100%;padding:6px 0;border:0;background:none;font:inherit;font-size:13px;color:inherit;text-align:left;cursor:pointer}
+.log li em{font-style:normal;color:var(--ink-soft)}
+.mark{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#17262b;background:var(--sun)}
+@media (prefers-reduced-motion:reduce){.cars{display:none}}
+@media (max-width:820px){.stage{grid-template-columns:1fr;padding:0 12px 18px}.hud{padding:12px}.notice{margin:0 12px 10px}}
+${s5}`, f8 = `
+(function(){
+var first=document.querySelector(".pane:not([hidden])");
+function pick(id){
+document.querySelectorAll(".pane").forEach(function(p){p.hidden=p.dataset.for!==id});
+document.querySelectorAll("svg .b").forEach(function(g){var on=g.dataset.id===id;g.classList.toggle("sel",on);g.setAttribute("aria-pressed",on?"true":"false")});
+}
+document.addEventListener("click",function(e){
+var t=e.target.closest("[data-id]");
+if(t)pick(t.dataset.id);
+});
+document.addEventListener("keydown",function(e){
+if(e.key!=="Enter"&&e.key!==" "&&e.key!=="Spacebar")return;
+var t=e.target.closest&&e.target.closest("[data-id][role=button]");
+if(!t||t.tagName==="BUTTON")return;
+e.preventDefault();
+pick(t.dataset.id);
+});
+if(first)pick(first.dataset.for);
+var city=document.querySelector("svg.city");
+var still=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)");
+function motion(){if(city&&city.pauseAnimations){if(still&&still.matches)city.pauseAnimations();else city.unpauseAnimations();}}
+motion();
+if(still&&still.addEventListener)still.addEventListener("change",motion);
+var m=document.querySelector(".map-scroll");
+if(m){
+m.scrollLeft=(m.scrollWidth-m.clientWidth)/2;
+var narrow=window.matchMedia&&window.matchMedia("(max-width:820px)");
+var f=m.dataset.focus&&m.querySelector('[data-id="'+m.dataset.focus+'"]');
+if(narrow&&narrow.matches&&f){
+var fr=f.getBoundingClientRect(),mr=m.getBoundingClientRect();
+m.scrollLeft+=fr.left+fr.width/2-(mr.left+mr.width/2);
+}
+}
+})();
+`;
+function F3($, Q, Z, J = "", V = {}) {
+  let q = J === "" ? "" : `<small>${J}</small>`, z = `${`<span class="ic${V.dark ? " dark" : ""}" style="background:${$}" aria-hidden="true">${Q}</span>`}${Z}${q}`;
+  return V.id === void 0 ? `<div class="chip">${z}</div>` : `<button type="button" class="chip" data-id="${T(V.id)}">${z}</button>`;
+}
+function x8($) {
+  if (!$.guard)
+    return [];
+  let { total: Q } = $.guard;
+  return [F3("#b4442f", "▣", `守衛 ${Q}`, "次警報", { id: "guard" })];
+}
+function g8($) {
+  if (!$.learned && !$.skills)
+    return [];
+  let Q = $.learned?.length ?? 0, Z = $.skills?.length ?? 0;
+  return [
+    F3("#6b4f8a", "✎", `學到 ${Q}`, `條・技能 ${Z} 個`, {
+      id: "library"
+    })
+  ];
+}
+function p8($) {
+  let Q = l5($);
+  return Q === void 0 ? [] : [F3("#2f6b8f", "◷", "行程表", Q, { id: "clock" })];
+}
+function c8($, Q) {
+  let { hud: Z } = Q, J = $.goals.find((V) => V.kind === "goal")?.color ?? "#d98c2b";
+  return `<div class="hud"><h1>綠洲</h1>${[
+    F3(s3(J), "★", `目標 ${Z.goals}`, "進行中"),
+    F3("var(--sun)", "!", `任務 ${Z.tasks}`, "等你接", { dark: !0 }),
+    F3("var(--palm)", "▲", `在建 ${Z.building}`),
+    F3("var(--water)", "≈", `自動 ${Z.auto}`, "正常"),
+    ...x8($),
+    ...g8($),
+    ...p8($)
+  ].join("")}<span class="day">${T(Q.dateLabel)}</span></div>`;
+}
+function y8($) {
+  let Q = $.orphans.map((q) => `<li>${T(q.name)}（${T(q.file)}）：${T(q.reason)}，沒有道路可通</li>`), Z = $.errors.map((q) => `<li>${T(q.file)}：${T(q.reason)}</li>`), J = $.warnings.map((q) => `<li>${T(q.file)}：${T(q.reason)}</li>`);
+  if (Q.length + Z.length + J.length === 0)
+    return "";
+  return `<section class="notice">${[
+    Q.length > 0 ? `<b>${Q.length} 個街區是孤兒，請補上 goal</b><ul>${Q.join("")}</ul>` : "",
+    Z.length > 0 ? `<b>${Z.length} 張卡片讀不進來</b><ul>${Z.join("")}</ul>` : "",
+    J.length > 0 ? `<b>${J.length} 則提醒</b><ul>${J.join("")}</ul>` : ""
+  ].join("")}</section>`;
+}
+function m8($, Q) {
+  if ($.goal === i)
+    return Q4;
+  return Q.goals.find((Z) => Z.id === $.goal)?.color;
+}
+function n8($) {
+  let Q = $.xp ?? void 0, Z = Q ? Q.current / Q.target : $.progress;
+  if (Z === void 0)
+    return "";
+  let J = Math.round(Math.min(1, Z) * 100), V = Q ? Q.label : "進度", q = Q ? `${Q.current} / ${Q.target}` : `${J}%`;
+  return `<div class="xp"><span style="width:${J}%"></span></div><div class="xp-label"><span>${T(V)}</span><span>${T(q)}</span></div>`;
+}
+function r8($, Q) {
+  if ($.state !== "waiting") {
+    let V = $.statusText ?? $.due;
+    return V ? `<p class="sub" style="margin-top:12px">${T(V.replace(/\n/g, " "))}</p>` : "";
+  }
+  let Z = r3($.since, Q), J = Z === 0 ? "今天新增" : `已經等了 ${Z} 天`;
+  return `<div class="quest"><b>任務：${T($.quest ?? $.next)}</b><span class="sub">${T($.quest ? `${$.next}。${J}。` : `${J}。`)}</span></div>`;
+}
+function i8($, Q) {
+  let Z = m8($, Q);
+  if (!Z)
+    return `<div class="goal-link">還沒接到任何目標（${T(m4($, Q))}）</div>`;
+  let J = $.goal === i ? "這條路接上綠洲核心（自動運轉的水源）" : `這條路通往「${T(Q.goals.find((V) => V.id === $.goal)?.name ?? "")}」`;
+  return `<div class="goal-link"><i style="background:${Z}"></i>${J}</div>`;
+}
+function s8($, Q) {
+  let Z = Q.strengths ?? [];
+  if ($.building !== "core" || Z.length === 0)
+    return "";
+  return `<div class="strengths"><h3>我的強項</h3><ul class="members">${Z.map((V) => `<li>${T(V.name)}<em class="sub">（${V.sources.length} 件事）</em></li>`).join("")}</ul></div>`;
+}
+function l8($, Q, Z, J) {
+  let V = $.state === "building" || $.state === "waiting" ? `<span class="lv">Lv.${$.level}</span>` : "";
+  return `<div class="pane" data-for="${T($.id)}"${J ? " hidden" : ""}><h2>${T($.name)}${V}</h2><p class="sub">${T($.next)}</p>${n8($)}${r8($, Z)}${i8($, Q)}${s8($, Q)}</div>`;
+}
+function o8($, Q) {
+  let Z = Q.districts.filter((q) => q.goal === $.id), J = Z.map((q) => `<li>${T(q.name)}</li>`).join(""), V = $.kind === "endgame" ? "終點" : "目標";
+  return `<div class="pane" data-for="goal-${T($.id)}" hidden><h2>${T($.name)}<span class="lv">${V}</span></h2><div class="goal-link"><i style="background:${$.color}"></i>通往這裡的街區 ${Z.length} 個</div><ul class="members">${J}</ul></div>`;
+}
+function d8($) {
+  let Q = $.guard;
+  if (!Q)
+    return "";
+  let Z = Q.recent.map((V) => `<li>${T(V.summary)}<br><em class="sub">${T(V.when)}（${T(V.rule)}）</em></li>`).join(""), J = Q.total === 0 ? '<p class="sub">城牆很安靜，還沒有攔下任何事。</p>' : `<ul class="members">${Z}</ul>`;
+  return `<div class="pane" data-for="guard" hidden><h2>城牆守衛<span class="lv">共 ${Q.total} 次</span></h2><p class="sub">守衛攔下或先問過你的動作。最近 ${Q.recent.length} 筆：</p>${J}</div>`;
+}
+function a8($) {
+  if (!$.learned && !$.skills)
+    return "";
+  let Q = ($.learned ?? []).map((q) => `<li>${T(q.rule)}<br><em class="sub">${T(q.use)}${q.date ? `（${T(q.date)}）` : ""}</em></li>`).join(""), Z = ($.skills ?? []).map((q) => `<li>${T(q.name)}<br><em class="sub">${T(q.when)}</em></li>`).join(""), J = Q ? `<p class="sub">學到的事：</p><ul class="members">${Q}</ul>` : '<p class="sub">還沒有學到的事，收工時 Claude 會問你要不要記下來。</p>', V = Z ? `<p class="sub">技能：</p><ul class="members">${Z}</ul>` : "";
+  return `<div class="pane" data-for="library" hidden><h2>圖書館<span class="lv">學到 ${$.learned?.length ?? 0} 條</span></h2>${J}${V}</div>`;
+}
+function t8($) {
+  let Q = $.districts.filter((Z) => Z.state === "waiting").map((Z) => `<li><button type="button" data-id="${T(Z.id)}"><span class="mark" aria-hidden="true">!</span>${T(Z.quest ?? Z.next)}<em>${T(Z.short ?? Z.name)}</em></button></li>`);
+  if (Q.length === 0)
+    return "";
+  return `<div class="log"><h3>任務板</h3><ul>${Q.join("")}</ul></div>`;
+}
+function G6($) {
+  let Q = (Z) => $.districts.find((J) => J.state === Z);
+  return (Q("waiting") ?? Q("building") ?? $.districts[0])?.id;
+}
+function e8($) {
+  let Q = $.districts.find((J) => J.id === G6($))?.goal, Z = $.goals.find((J) => J.id === Q) ?? $.goals.find((J) => J.kind === "goal");
+  return Z ? `goal-${Z.id}` : void 0;
+}
+function $9($) {
+  try {
+    let Q = W6($, void 0, { animate: !0 }).replace("<svg ", '<svg class="city" '), Z = e8($);
+    return `<div class="map-scroll"${Z ? ` data-focus="${T(Z)}"` : ""}>${Q}</div>`;
+  } catch (Q) {
+    let Z = Q instanceof Error ? Q.message : String(Q);
+    return `<p class="notice">地圖畫不出來：${T(Z)}</p>`;
+  }
+}
+function K6($, Q) {
+  let Z = P6($, Q), J = G6($), V = [
+    ...$.districts.map((B) => l8(B, $, Q, B.id !== J)),
+    ...$.goals.map((B) => o8(B, $)),
+    d8($),
+    a8($),
+    d5($, Q)
+  ].join(""), q = $.districts.length === 0 ? `<h2>${J4($) ? "還是一座空城" : "還沒有街區"}</h2><p class="sub">${T(Z.lede)}</p>` : "";
+  return `<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>綠洲地圖</title><style>${u8}</style></head>
+<body>${c8($, Z)}
+${y8($)}
+<div class="stage">${$9($)}
+<aside aria-label="說明面板"><div class="panel" aria-live="polite">${V}${q}${t8($)}</div></aside></div>
+<script>${f8}<\/script>${$.schedule ? `<script>${o5}<\/script>` : ""}
+</body></html>
+`;
+}
+
+// src/library.ts
+var Q9 = /^[-*]\s*(日期|起因|怎麼用)\s*[：:]\s*(.*)$/;
+function j6($) {
+  let Q = [];
+  for (let Z of $.split(/\r?\n/)) {
+    let J = Z.trim(), V = /^##\s+(.+)$/.exec(J);
+    if (V) {
+      Q.push({
+        rule: V[1].trim(),
+        date: "",
+        cause: "",
+        use: ""
+      });
+      continue;
+    }
+    let q = Q9.exec(J), B = Q[Q.length - 1];
+    if (!q || !B)
+      continue;
+    let z = q[2].trim();
+    if (q[1] === "日期")
+      B.date = z;
+    else if (q[1] === "起因")
+      B.cause = z;
+    else
+      B.use = z;
+  }
+  return Q;
+}
+function C6($) {
+  return $.map((Q) => {
+    let Z = Q.file.replace(/\.md$/, ""), J = n3(Q.text);
+    if (!J.ok)
+      return { name: Z, when: "" };
+    let { name: V, when: q } = J.value.fields;
+    return { name: V?.trim() || Z, when: q?.trim() ?? "" };
+  });
+}
+
+// src/fromcards.ts
+var Z9 = "學到的事.md", J9 = "技能";
+function n4($, Q) {
+  let Z = `${Q}/`;
+  return $.filter((J) => J.file.startsWith(Z) && J.file.endsWith(".md")).map((J) => ({ file: J.file.slice(Z.length), text: J.text }));
+}
+function V9($) {
+  return $.replace(/\r\n?/g, `
+`);
+}
+function r4($) {
+  return $.map((Q) => ({ file: Q.file, text: V9(Q.text) }));
+}
+function q9($, Q = []) {
+  $ = r4($);
+  let Z = Y5(n4($, "districts"), n4($, "goals"));
+  Z.errors.push(...Q);
+  let J = $.find((C) => C.file === "profile.md");
+  if (J)
+    Z.strengths = x5(J.text);
+  let V = $.find((C) => C.file === "guard-log.md");
+  if (V)
+    Z.guard = $5(V.text);
+  let q = $.find((C) => C.file === Z9);
+  if (q)
+    Z.learned = j6(q.text);
+  let B = n4($, J9);
+  if (B.length > 0)
+    Z.skills = C6(B);
+  let z = (C) => $.find((K) => K.file === C)?.text, { schedule: Y, errors: X } = r5(z(f4), z(x4), z(m5));
+  if (Y)
+    Z.schedule = Y;
+  return Z.errors.push(...X), Z;
+}
+function F6($, Q, Z = []) {
+  return K6(q9($, Z), Q);
+}
+
+// src/datajs.ts
+function B9($) {
+  let Q = "", Z = !1;
+  for (let J = 0;J < $.length; J++) {
+    let V = $[J];
+    if (!Z) {
+      if (V === '"')
+        Z = !0;
+      Q += V;
+      continue;
+    }
+    if (V === "\\")
+      Q += V + ($[J + 1] ?? ""), J++;
+    else if (V === '"')
+      Z = !1, Q += V;
+    else if (V === "\r" || V === `
+`) {
+      if (V === "\r" && $[J + 1] === `
+`)
+        J++;
+      Q += "\\n";
+    } else
+      Q += V;
+  }
+  return Q;
+}
+function M6($) {
+  let Q = {};
+  Function("window", B9($))(Q);
+  let Z = Array.isArray(Q.OASIS_CARDS) ? r4(Q.OASIS_CARDS) : [], J = Array.isArray(Q.OASIS_ERRORS) ? Q.OASIS_ERRORS : [];
+  return { cards: Z, errors: J };
+}
+
+// src/viewer-entry.ts
+var z9 = "<p style='font:16px sans-serif;padding:24px'>map.html 裡的城市資料壞掉了，讀不出來。請回到 Claude 說「更新地圖」重新產生。</p>";
+function Y9() {
+  try {
+    let { cards: $, errors: Q } = M6(document.scripts[0]?.text ?? "");
+    return $.length > 0 ? { files: $, errors: Q } : { errors: [] };
+  } catch {
+    return { errors: [] };
+  }
+}
+function X9() {
+  let $ = window.OASIS_CARDS, Q = Array.isArray(window.OASIS_ERRORS) ? window.OASIS_ERRORS : [];
+  if (!Array.isArray($))
+    ({ files: $, errors: Q } = Y9());
+  let Z = Array.isArray($) ? F6($, /* @__PURE__ */ new Date, Q) : z9;
+  document.open(), document.write(Z), document.close();
+}
+X9();
+</script>
+</body></html>

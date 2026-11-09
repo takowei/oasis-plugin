@@ -1,0 +1,14 @@
+{
+  "name": "oasis-market",
+  "owner": {
+    "name": "Tako"
+  },
+  "description": "綠洲 plugin 的市集（從 GitHub 自動取得最新版）",
+  "plugins": [
+    {
+      "name": "oasis",
+      "source": "./",
+      "description": "綠洲：從空城開局、找強項、蓋出自己的城市地圖"
+    }
+  ]
+}

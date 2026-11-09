@@ -1,0 +1,15 @@
+{
+  "name": "oasis",
+  "description": "綠洲：把資料夾裡的目標與街區卡片畫成等角城市地圖（聊天旁 Pane 與獨立 map.html）",
+  "author": {
+    "name": "Tako"
+  },
+  "userConfig": {
+    "data_dir": {
+      "type": "directory",
+      "title": "資料夾",
+      "description": "放 districts/*.md 卡片的資料夾，可用 ~ 開頭",
+      "default": "~/workspace/oasis-city"
+    }
+  }
+}
