@@ -215,6 +215,7 @@ claude plugin validate .
 - `oasis-time`：時間管家，依你的固定行程算真正可用時間，只排約六成，每次滾動調整。排好的行程寫在 `時間/`，`map.html` 的鐘樓點開就是一週行程表，Claude Code 的 Pane 也會列出今天的時段。
 - `oasis-slides`：簡報大綱，排結構與每頁問題，可寫講稿，交出成品附交件提醒。
 - `oasis-video`：影片剪輯，先檢查有沒有 ffmpeg，沒有就教外部工具；只輸出新檔。
+- `oasis-ig`：IG 創作工作室，從有證據的強項提系列候選、拆成小行動、只跟自己比的複盤、業配入門（外部事實附來源）。
 - `oasis-skills`：技能庫。`update-map`：更新地圖。
 
 ## 結構

@@ -60,7 +60,7 @@ created: 2026-11-04
 
 ## 預裝的流程
 
-綠洲本身附了這些流程，使用者要做對應的事時直接用，不必存成資料型技能：開局、作品盤點（`oasis-portfolio`）、機會雷達（`oasis-radar`）、週回顧（`oasis-weekly`）、找資料整理（`oasis-research`）、履歷與自介（`oasis-resume`）、時間規劃（`oasis-plan`）、時間管家（`oasis-time`）、簡報大綱（`oasis-slides`）、影片剪輯（`oasis-video`）、更新地圖（`update-map`）。
+綠洲本身附了這些流程，使用者要做對應的事時直接用，不必存成資料型技能：開局、作品盤點（`oasis-portfolio`）、機會雷達（`oasis-radar`）、週回顧（`oasis-weekly`）、找資料整理（`oasis-research`）、履歷與自介（`oasis-resume`）、時間規劃（`oasis-plan`）、時間管家（`oasis-time`）、簡報大綱（`oasis-slides`）、影片剪輯（`oasis-video`）、IG 創作工作室（`oasis-ig`）、更新地圖（`update-map`）。
 
 ## 規則
 

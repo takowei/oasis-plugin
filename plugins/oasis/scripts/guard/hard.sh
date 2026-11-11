@@ -74,7 +74,7 @@ is_protected() {
 
 is_guard_path() {
   case $1 in
-    */oasis/hooks/* | */oasis/scripts/guard/* | */oasis/.claude-plugin/* | */oasis-market/* | */guard-log.md | */oasis-guard | */oasis-guard/*) return 0 ;;
+    */oasis/hooks | */oasis/hooks/* | */oasis/scripts/guard | */oasis/scripts/guard/* | */oasis/.claude-plugin | */oasis/.claude-plugin/* | */oasis-market | */oasis-market/* | */guard-log.md | */oasis-guard | */oasis-guard/*) return 0 ;;
   esac
   [ -n "$PLUGIN_ROOT" ] && case $1 in "$PLUGIN_ROOT" | "$PLUGIN_ROOT"/*) return 0 ;; esac
   return 1
@@ -307,9 +307,12 @@ r5_bash() {
   printf '%s' "$1" | grep -Eq '(^|[[:space:];&|(`])(cd|pushd|popd)([[:space:]]|$)' && _cd=1
   _proj=0
   _other=0
+  # 防護層檔案只擋「寫入／修改」：純唯讀指令（ls、cat、grep…）看外掛目錄不會改到東西，放行。
+  _ro=0
+  cmd_is_read "$1" && _ro=1
   for w in $(guard_tokens "$_raw"); do
     _lw=$(printf '%s' "$w" | lower)
-    is_guard_path "$_lw" && hit deny R5 "擋下：想改防護設定" "$R5_REASON"
+    [ "$_ro" = 0 ] && is_guard_path "$_lw" && hit deny R5 "擋下：想改防護設定" "$R5_REASON"
     case $_lw in
       .claude | .claude/* | */.claude | */.claude/* | .claude.json | */.claude.json) ;;
       *) continue ;;
@@ -533,6 +536,39 @@ r6_write() {
   case ${_f##*/} in .bashrc | .zshrc | .profile | .zprofile | .bash_profile | .npmrc | .gitconfig | settings*.json | *.ps1 | .env.local) ;; *) return 0 ;; esac
   printf '%s' "$INPUT" | lower | grep -Eq '(anthropic_base_url|(https?|all|ftp)_proxy)[^a-z0-9_]' && hit deny R7 "擋下：想改連線位址或代理設定" "$R7_REMOTE_REASON"
 }
+
+# 桌面 app 讀寫本機檔的 device_* 工具（名稱可能帶 mcp__<伺服器>__ 前綴）。全名未全數驗證，所以靠名稱分類：
+# 讀取類（list／read／get／search／find／view／stat／glob／grep／ls／exists／info／tree）只做 R1 機密檔比對；
+# 其餘（寫入、刪除、搬移、執行，連沒見過的名稱）一律當寫入類：碰防護路徑 deny（R5）。
+# 欄位名不固定，所以整個 tool_input 切詞比對；找不到任何路徑欄位的寫入類 ask（不知道會改哪裡，不放行也不硬擋）。
+DEVICE_PATH_FIELDS='"(path|paths|file_path|filepath|file|filename|dir|dir_path|directory|folder|target|destination|dest|source|src|old_path|new_path)" *:'
+# 動作名（第一個 device_ 之後）切成段：任一段是寫入動詞就當寫入類；否則第一段要是讀取動詞才算讀取類。
+device_is_read() {
+  _act=$(printf '%s' "$TOOL" | lower)
+  _act=${_act#*device_}
+  for _seg in $(printf '%s' "$_act" | tr -c 'a-z0-9\n' '\n'); do
+    case $_seg in
+      write* | replace* | edit* | delete* | remove* | move* | rename* | create* | set | put* | append* | copy* | upload* | save* | mkdir* | exec* | run*) return 1 ;;
+    esac
+  done
+  case $_act in
+    list* | read* | get* | search* | find* | view* | stat* | glob* | grep* | ls* | exists* | info* | tree*) return 0 ;;
+  esac
+  return 1
+}
+
+device_guard() {
+  _all=$(printf '%s' "$INPUT" | json_plain | lower)
+  r1_scan "$_all" 0
+  device_is_read && return 0
+  r5_scan "$_all"
+  printf '%s' "$INPUT" | grep -Eq "$DEVICE_PATH_FIELDS" ||
+    hit ask R5 "先問：本機檔案工具沒有指明要動哪個路徑" "這個動作會改你電腦上的檔案，但我看不出它要動哪裡，請你先確認（規則 R5）。"
+}
+
+case $(printf '%s' "$TOOL" | lower) in
+  *device_*) device_guard ;;
+esac
 
 case $TOOL in
   Read) r1_scan "$(field file_path)" 1 ;;
